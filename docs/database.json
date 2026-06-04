@@ -1,0 +1,38 @@
+{
+  "tables": [
+    {
+      "name": "users",
+      "columns": [
+        { "name": "id", "type": "INTEGER", "primaryKey": true, "autoIncrement": true },
+        { "name": "username", "type": "TEXT", "unique": true, "nullable": false }
+      ]
+    },
+    {
+      "name": "boards",
+      "columns": [
+        { "name": "id", "type": "INTEGER", "primaryKey": true, "autoIncrement": true },
+        { "name": "user_id", "type": "INTEGER", "nullable": false, "references": "users.id" },
+        { "name": "name", "type": "TEXT", "nullable": false, "default": "My Board" }
+      ]
+    },
+    {
+      "name": "columns",
+      "columns": [
+        { "name": "id", "type": "INTEGER", "primaryKey": true, "autoIncrement": true },
+        { "name": "board_id", "type": "INTEGER", "nullable": false, "references": "boards.id" },
+        { "name": "title", "type": "TEXT", "nullable": false },
+        { "name": "position", "type": "INTEGER", "nullable": false }
+      ]
+    },
+    {
+      "name": "cards",
+      "columns": [
+        { "name": "id", "type": "INTEGER", "primaryKey": true, "autoIncrement": true },
+        { "name": "column_id", "type": "INTEGER", "nullable": false, "references": "columns.id" },
+        { "name": "title", "type": "TEXT", "nullable": false },
+        { "name": "details", "type": "TEXT", "nullable": false, "default": "" },
+        { "name": "position", "type": "INTEGER", "nullable": false }
+      ]
+    }
+  ]
+}
