@@ -142,3 +142,46 @@ def reorder_column(conn: sqlite3.Connection, column_id: int, ordered_ids: list[i
 def normalize_positions(conn: sqlite3.Connection, column_id: int) -> None:
     ids = get_column_cards(conn, column_id)
     reorder_column(conn, column_id, ids)
+
+
+def apply_kanban_update(conn: sqlite3.Connection, columns: list[dict]) -> None:
+    """
+    Apply a full-replacement update to a set of columns.
+    Each entry in `columns` is {"id": str, "cards": [{"id"?: str, "title": str, "details": str}]}.
+    Cards are fully replaced per column: existing cards not in the list are deleted.
+    """
+    for col in columns:
+        try:
+            column_id = int(col["id"])
+        except (ValueError, TypeError):
+            continue  # skip columns with non-integer IDs
+
+        # Verify the column exists
+        if not conn.execute("SELECT 1 FROM columns WHERE id = ?", (column_id,)).fetchone():
+            continue
+
+        incoming = col["cards"]
+
+        # Build set of existing card IDs for this column
+        existing_ids = set(get_column_cards(conn, column_id))
+        incoming_ids = {int(c["id"]) for c in incoming if c.get("id")}
+
+        # Delete cards not present in the update
+        for card_id in existing_ids - incoming_ids:
+            conn.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+
+        # Upsert cards in order
+        for position, card in enumerate(incoming):
+            title = card["title"]
+            details = card.get("details", "")
+            if card.get("id"):
+                card_id = int(card["id"])
+                conn.execute(
+                    "UPDATE cards SET title = ?, details = ?, position = ?, column_id = ? WHERE id = ?",
+                    (title, details, position, column_id, card_id),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO cards (column_id, title, details, position) VALUES (?, ?, ?, ?)",
+                    (column_id, title, details, position),
+                )

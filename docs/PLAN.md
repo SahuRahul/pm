@@ -241,16 +241,16 @@ Extend the AI call to include the current board state and conversation history. 
 Add an AI chat panel to the UI. The assistant can read and update the Kanban; changes are reflected immediately.
 
 ### Tasks
-- [ ] Add a sidebar toggle button to the board header (icon + "AI Assistant" label)
-- [ ] Sidebar component:
+- [x] Add a sidebar toggle button to the board header (icon + "AI Assistant" label)
+- [x] Sidebar component:
   - Scrollable message history (user + assistant bubbles)
   - Text input + send button at the bottom
   - Styled using existing CSS variables (no new color tokens)
-- [ ] On send: POST to `/api/ai/chat` with message history and current board state
-- [ ] On response: append assistant message to chat history
-- [ ] If response includes a board update, replace board state in `KanbanBoard` — no page reload needed
-- [ ] Show a loading indicator while waiting for the AI response
-- [ ] Sidebar is collapsible; state persists for the session
+- [x] On send: POST to `/api/ai/chat` with message history and current board state
+- [x] On response: append assistant message to chat history
+- [x] If response includes a board update, replace board state in `KanbanBoard` — no page reload needed
+- [x] Show a loading indicator while waiting for the AI response
+- [x] Sidebar is collapsible; state persists for the session
 
 ### Tests & success criteria
 - Unit test: sidebar renders; message is added to history on send

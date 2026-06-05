@@ -4,9 +4,10 @@ from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from ai import call_claude
+from ai import AIResponse, KanbanUpdate, call_claude, chat_with_claude
 from auth import VALID_PASSWORD, VALID_USERNAME, clear_session, create_session, verify_session
 from database import (
+    apply_kanban_update,
     fetch_board,
     get_column_cards,
     get_connection,
@@ -229,6 +230,32 @@ def ai_ping(username: str = Depends(verify_session)):
     _ = username
     text = call_claude([{"role": "user", "content": "What is 2+2? Reply with just the number."}])
     return {"response": text}
+
+
+class ChatRequest(BaseModel):
+    messages: list[dict]
+    board: dict
+
+
+@app.post("/api/ai/chat")
+def ai_chat(body: ChatRequest, username: str = Depends(verify_session)):
+    user_id = _get_user_id(username)
+    ai_response: AIResponse = chat_with_claude(body.messages, body.board)
+
+    if ai_response.kanban_update:
+        cols = [
+            {"id": col.id, "cards": [{"id": c.id, "title": c.title, "details": c.details} for c in col.cards]}
+            for col in ai_response.kanban_update.columns
+        ]
+        with get_connection() as conn:
+            apply_kanban_update(conn, cols)
+            conn.commit()
+            board = fetch_board(conn, user_id)
+    else:
+        with get_connection() as conn:
+            board = fetch_board(conn, user_id)
+
+    return {"message": ai_response.message, "board": board}
 
 
 # --- Static files (Next.js export) ---

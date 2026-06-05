@@ -13,12 +13,28 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
+import { AIChatSidebar } from "@/components/AIChatSidebar";
 import { apiUrl } from "@/lib/api";
 import { createId, moveCard, type BoardData } from "@/lib/kanban";
 
 // Strip col-/card- prefix to get the numeric DB id for API calls
 const stripId = (prefixedId: string): number =>
   Number(prefixedId.replace(/^(col-|card-)/, ""));
+
+// Strip col-/card- prefixes for sending back to the API
+const denormalizeBoard = (data: BoardData): BoardData => ({
+  columns: data.columns.map((col) => ({
+    ...col,
+    id: col.id.replace(/^col-/, ""),
+    cardIds: col.cardIds.map((id) => id.replace(/^card-/, "")),
+  })),
+  cards: Object.fromEntries(
+    Object.entries(data.cards).map(([id, card]) => [
+      id.replace(/^card-/, ""),
+      { ...card, id: card.id.replace(/^card-/, "") },
+    ])
+  ),
+});
 
 // Add col-/card- prefixes to prevent id collision between columns and cards
 const normalizeBoard = (data: BoardData): BoardData => ({
@@ -50,6 +66,7 @@ export const KanbanBoard = ({
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(useApi && !initialBoard);
   const [error, setError] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -364,15 +381,24 @@ export const KanbanBoard = ({
                   One board. Five columns. Zero clutter.
                 </p>
               </div>
-              {onLogout ? (
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={onLogout}
-                  className="rounded-full border border-[var(--stroke)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)] transition hover:border-[var(--secondary-purple)] hover:text-[var(--secondary-purple)]"
+                  onClick={() => setSidebarOpen((o) => !o)}
+                  className="rounded-full border border-[var(--stroke)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)] transition hover:border-[var(--primary-blue)] hover:text-[var(--primary-blue)]"
                 >
-                  Log out
+                  {sidebarOpen ? "Close AI" : "AI Assistant"}
                 </button>
-              ) : null}
+                {onLogout ? (
+                  <button
+                    type="button"
+                    onClick={onLogout}
+                    className="rounded-full border border-[var(--stroke)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)] transition hover:border-[var(--secondary-purple)] hover:text-[var(--secondary-purple)]"
+                  >
+                    Log out
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">
@@ -394,32 +420,46 @@ export const KanbanBoard = ({
           </div>
         ) : null}
 
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <section className="grid gap-6 lg:grid-cols-5">
-            {board.columns.map((column) => (
-              <KanbanColumn
-                key={column.id}
-                column={column}
-                cards={column.cardIds.map((cardId) => board.cards[cardId])}
-                onRename={handleRenameColumn}
-                onAddCard={handleAddCard}
-                onDeleteCard={handleDeleteCard}
-              />
-            ))}
-          </section>
-          <DragOverlay>
-            {activeCard ? (
-              <div className="w-[260px]">
-                <KanbanCardPreview card={activeCard} />
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+        <div className={`flex gap-6 ${sidebarOpen ? "items-start" : ""}`}>
+          <div className="flex-1 min-w-0">
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <section className="grid gap-6 lg:grid-cols-5">
+                {board.columns.map((column) => (
+                  <KanbanColumn
+                    key={column.id}
+                    column={column}
+                    cards={column.cardIds.map((cardId) => board.cards[cardId])}
+                    onRename={handleRenameColumn}
+                    onAddCard={handleAddCard}
+                    onDeleteCard={handleDeleteCard}
+                  />
+                ))}
+              </section>
+              <DragOverlay>
+                {activeCard ? (
+                  <div className="w-[260px]">
+                    <KanbanCardPreview card={activeCard} />
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          </div>
+
+          <div
+            className="w-[340px] shrink-0 rounded-[24px] border border-[var(--stroke)] bg-white/90 shadow-[var(--shadow)] backdrop-blur"
+            style={{ height: "calc(100vh - 200px)", position: "sticky", top: "24px", display: sidebarOpen ? "flex" : "none", flexDirection: "column" }}
+          >
+            <AIChatSidebar
+              board={denormalizeBoard(board)}
+              onBoardUpdate={(updated) => setBoard(normalizeBoard(updated))}
+            />
+          </div>
+        </div>
       </main>
     </div>
   );
