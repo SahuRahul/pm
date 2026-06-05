@@ -100,7 +100,7 @@ Define and document the SQLite schema before writing any backend data code.
   - Table definitions (DDL)
   - Explanation of relationships
   - Notes on how `BoardData` (frontend shape) maps to the schema
-- [ ] Get user sign-off on the schema before proceeding
+- [x] Get user sign-off on the schema before proceeding
 
 ### Schema (proposed)
 
@@ -142,23 +142,23 @@ CREATE TABLE cards (
 Implement CRUD API routes so the frontend can read and persist the Kanban board via the backend.
 
 ### Tasks
-- [ ] Database initialisation: on startup, create the SQLite database and tables if they do not exist; create the default `user` account and seed an empty board
-- [ ] `GET /api/board` — return the full board for the authenticated user as `BoardData` JSON
-- [ ] `PATCH /api/columns/{column_id}` — rename a column
-- [ ] `POST /api/cards` — create a new card in a column; return the new card with its id
-- [ ] `PATCH /api/cards/{card_id}` — update card title / details
-- [ ] `DELETE /api/cards/{card_id}` — delete a card
-- [ ] `PATCH /api/cards/{card_id}/move` — move a card to a different column and/or position
-- [ ] All routes protected by auth dependency from Part 4
-- [ ] Database file stored at `/data/kanban.db` (the volume-mounted path)
+- [x] Database initialisation: on startup, create the SQLite database and tables if they do not exist; create the default `user` account and seed an empty board
+- [x] `GET /api/board` — return the full board for the authenticated user as `BoardData` JSON
+- [x] `PATCH /api/columns/{column_id}` — rename a column
+- [x] `POST /api/cards` — create a new card in a column; return the new card with its id
+- [x] `PATCH /api/cards/{card_id}` — update card title / details
+- [x] `DELETE /api/cards/{card_id}` — delete a card
+- [x] `PATCH /api/cards/{card_id}/move` — move a card to a different column and/or position
+- [x] All routes protected by auth dependency from Part 4
+- [x] Database file stored at `/data/kanban.db` (the volume-mounted path)
 
 ### Tests & success criteria
-- Pytest unit tests for every route (use `TestClient` from FastAPI)
-- Test: unauthenticated requests to all data routes return 401
-- Test: board is created and seeded on first run; subsequent runs return persisted data
-- Test: create, rename, move, and delete a card end-to-end via the API
-- Test: column rename persists
-- All pytest tests pass: `uv run pytest`
+- [x] Pytest unit tests for every route (use `TestClient` from FastAPI)
+- [x] Test: unauthenticated requests to all data routes return 401
+- [x] Test: board is created and seeded on first run; subsequent runs return persisted data
+- [x] Test: create, rename, move, and delete a card end-to-end via the API
+- [x] Test: column rename persists
+- [x] All pytest tests pass: `uv run pytest`
 
 ---
 
