@@ -167,21 +167,25 @@ Implement CRUD API routes so the frontend can read and persist the Kanban board 
 Replace all in-memory frontend state with live API calls. The board is now fully persistent.
 
 ### Tasks
-- [ ] On mount, `KanbanBoard` fetches the board from `GET /api/board`
-- [ ] Column rename calls `PATCH /api/columns/{id}`
-- [ ] Add card calls `POST /api/cards`
-- [ ] Delete card calls `DELETE /api/cards/{id}`
-- [ ] Drag-and-drop end calls `PATCH /api/cards/{id}/move`
-- [ ] Show a loading state while the initial board fetch is in progress
-- [ ] On API error, surface a brief inline error message (no modal)
-- [ ] Remove all hardcoded `initialData` usage from production paths (keep it only in tests)
+- [x] On mount, `KanbanBoard` fetches the board from `GET /api/board`
+- [x] Column rename calls `PATCH /api/columns/{id}`
+- [x] Add card calls `POST /api/cards`
+- [x] Delete card calls `DELETE /api/cards/{id}`
+- [x] Drag-and-drop end calls `PATCH /api/cards/{id}/move`
+- [x] Show a loading state while the initial board fetch is in progress
+- [x] On API error, surface a brief inline error message (no modal)
+- [x] Remove all hardcoded `initialData` usage from production paths (keep it only in tests)
+
+### Notes
+- Fixed: column IDs and card IDs from SQLite both start at 1, causing dnd-kit to treat them as the same draggable/droppable. Fixed by adding `col-` / `card-` prefixes in `normalizeBoard()` in `KanbanBoard.tsx`, stripping before API calls.
 
 ### Tests & success criteria
-- All existing frontend unit tests still pass (mock the API in unit tests)
-- New integration tests: board loads from API; mutations call correct endpoints
-- E2E test: add a card, reload the page — card is still there
-- E2E test: drag a card to a new column, reload — card is in new column
-- E2E test: rename a column, reload — new name persists
+- [x] All existing frontend unit tests still pass (mock the API in unit tests)
+- [ ] New integration tests: board loads from API; mutations call correct endpoints
+- [x] E2E test: add a card, reload the page — card is still there
+- [x] E2E test: drag a card to a new column, reload — card is in new column
+- [x] E2E test: delete a card, reload — card is gone
+- [x] E2E test: rename a column, reload — new name persists
 
 ---
 

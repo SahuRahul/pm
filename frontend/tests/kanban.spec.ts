@@ -5,7 +5,8 @@ const login = async (page: any) => {
   await page.getByLabel(/username/i).fill("user");
   await page.getByLabel(/password/i).fill("password");
   await page.getByRole("button", { name: /sign in/i }).click();
-  await expect(page.getByRole("heading", { name: "Kanban Studio" })).toBeVisible();
+  await page.waitForURL((url: URL) => !url.pathname.endsWith("/login"));
+  await expect(page.locator('[data-testid^="column-"]')).toHaveCount(5);
 };
 
 test("redirects unauthenticated users to login", async ({ page }) => {
@@ -27,20 +28,42 @@ test("logs out and returns to login", async ({ page }) => {
   await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible();
 });
 
-test("adds a card to a column", async ({ page }) => {
+test("adds a card and persists after reload", async ({ page }) => {
   await login(page);
   const firstColumn = page.locator('[data-testid^="column-"]').first();
+  const title = `Playwright card ${Date.now()}`;
   await firstColumn.getByRole("button", { name: /add a card/i }).click();
-  await firstColumn.getByPlaceholder("Card title").fill("Playwright card");
+  await firstColumn.getByPlaceholder("Card title").fill(title);
   await firstColumn.getByPlaceholder("Details").fill("Added via e2e.");
   await firstColumn.getByRole("button", { name: /add card/i }).click();
-  await expect(firstColumn.getByText("Playwright card")).toBeVisible();
+  await expect(firstColumn.getByText(title)).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByText(title)).toBeVisible();
 });
 
-test("moves a card between columns", async ({ page }) => {
+test("renames a column and persists after reload", async ({ page }) => {
   await login(page);
-  const card = page.getByTestId("card-card-1");
-  const targetColumn = page.getByTestId("column-col-review");
+  const columnInput = page.getByLabel("Column title").first();
+  const newName = `Backlog ${Date.now()}`;
+  await columnInput.fill(newName);
+  await page.reload();
+  await expect(page.getByLabel("Column title").first()).toHaveValue(newName);
+});
+
+test("moves a card between columns and persists", async ({ page }) => {
+  await login(page);
+  const columns = page.locator('[data-testid^="column-"]');
+  const sourceColumn = columns.first();
+  const targetColumn = columns.nth(1);
+  const title = `Move card ${Date.now()}`;
+
+  await sourceColumn.getByRole("button", { name: /add a card/i }).click();
+  await sourceColumn.getByPlaceholder("Card title").fill(title);
+  await sourceColumn.getByRole("button", { name: /add card/i }).click();
+  await expect(sourceColumn.getByText(title)).toBeVisible();
+
+  const card = page.getByText(title).locator("xpath=ancestor::article");
   const cardBox = await card.boundingBox();
   const columnBox = await targetColumn.boundingBox();
   if (!cardBox || !columnBox) {
@@ -58,5 +81,9 @@ test("moves a card between columns", async ({ page }) => {
     { steps: 12 }
   );
   await page.mouse.up();
-  await expect(targetColumn.getByTestId("card-card-1")).toBeVisible();
+  await expect(targetColumn.getByText(title)).toBeVisible();
+
+  await page.reload();
+  const reloadedTarget = page.locator('[data-testid^="column-"]').nth(1);
+  await expect(reloadedTarget.getByText(title)).toBeVisible();
 });
