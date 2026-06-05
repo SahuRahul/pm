@@ -4,6 +4,7 @@ from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from ai import call_claude
 from auth import VALID_PASSWORD, VALID_USERNAME, clear_session, create_session, verify_session
 from database import (
     fetch_board,
@@ -219,6 +220,15 @@ def move_card(
 
         conn.commit()
     return {"ok": True}
+
+
+# --- AI ---
+
+@app.get("/api/ai/ping")
+def ai_ping(username: str = Depends(verify_session)):
+    _ = username
+    text = call_claude([{"role": "user", "content": "What is 2+2? Reply with just the number."}])
+    return {"response": text}
 
 
 # --- Static files (Next.js export) ---

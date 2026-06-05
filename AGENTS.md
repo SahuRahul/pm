@@ -23,8 +23,9 @@ For the MVP, this will run locally (in a docker container)
 - Python FastAPI backend, including serving the static NextJS site at /
 - Everything packaged into a Docker container
 - Use "uv" as the package manager for python in the Docker container
-- Use OpenRouter for the AI calls. An CLAUDE_API_KEY is in .env in the project root
-- Use `Sonnet 4.6` as the model
+- Use the Anthropic Python SDK for AI calls (not OpenRouter or any proxy)
+- `CLAUDE_API_KEY` in `.env` is an Anthropic API key
+- Use `claude-sonnet-4-6` as the model (Sonnet 4.6)
 - Use SQLLite local database for the database, creating a new db if it doesn't exist
 - Start and Stop server scripts for Mac, PC, Linux in scripts/
 

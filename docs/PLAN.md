@@ -194,15 +194,15 @@ Replace all in-memory frontend state with live API calls. The board is now fully
 Wire the backend to the Anthropic API (Claude Sonnet 4.6) and verify it works.
 
 ### Tasks
-- [ ] Add `anthropic` to Python dependencies
-- [ ] Read `CLAUDE_API_KEY` from environment (passed into container via `docker-compose.yml` env or `.env` file)
-- [ ] Create `backend/ai.py` with a minimal `call_claude(messages)` helper
-- [ ] Add `GET /api/ai/ping` route — sends `"What is 2+2?"` to Claude and returns the raw text response
-- [ ] `docker-compose.yml`: pass `CLAUDE_API_KEY` from host environment into the container
+- [x] Add `anthropic` to Python dependencies
+- [x] Read `CLAUDE_API_KEY` from environment (passed into container via `docker-compose.yml` env or `.env` file)
+- [x] Create `backend/ai.py` with a minimal `call_claude(messages)` helper
+- [x] Add `GET /api/ai/ping` route — sends `"What is 2+2?"` to Claude and returns the raw text response
+- [x] `docker-compose.yml`: pass `CLAUDE_API_KEY` from host environment into the container
 
 ### Tests & success criteria
-- Pytest test: mock the Anthropic client; confirm `call_claude` sends correct message shape
-- Manual test: `GET /api/ai/ping` returns a response containing "4"
+- [x] Pytest test: mock the Anthropic client; confirm `call_claude` sends correct message shape
+- [x] Manual test: `GET /api/ai/ping` returns a response containing "4"
 - The API key is never logged or exposed in responses
 
 ---
