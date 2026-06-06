@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Card, Label, Priority } from "@/lib/kanban";
 import { PRIORITY_COLORS, PRIORITY_LABELS } from "@/lib/kanban";
-import { assignLabel, unassignLabel, createLabel, deleteLabelApi } from "@/lib/api";
+import { assignLabel, unassignLabel, createLabel, deleteLabelApi, listComments, createComment, deleteComment, type Comment } from "@/lib/api";
 
 type Props = {
   card: Card;
@@ -40,7 +40,17 @@ export const CardDetailModal = ({
   const [newLabelName, setNewLabelName] = useState("");
   const [newLabelColor, setNewLabelColor] = useState(PRESET_COLORS[0]);
   const [labelError, setLabelError] = useState<string | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState("");
+  const [isPostingComment, setIsPostingComment] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Load comments on mount
+  useEffect(() => {
+    if (!useApi) return;
+    const rawId = card.id.replace(/^card-/, "");
+    listComments(rawId).then(setComments).catch(() => {});
+  }, [card.id, useApi]);
 
   // Close on Escape
   useEffect(() => {
@@ -50,6 +60,29 @@ export const CardDetailModal = ({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  const handleAddComment = async () => {
+    const body = newComment.trim();
+    if (!body) return;
+    setIsPostingComment(true);
+    try {
+      const rawId = card.id.replace(/^card-/, "");
+      if (useApi) {
+        const comment = await createComment(rawId, body);
+        setComments((prev) => [...prev, comment]);
+      } else {
+        setComments((prev) => [...prev, { id: String(Date.now()), body, author: "you", createdAt: new Date().toISOString() }]);
+      }
+      setNewComment("");
+    } finally {
+      setIsPostingComment(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (useApi) await deleteComment(commentId);
+    setComments((prev) => prev.filter((c) => c.id !== commentId));
+  };
 
   const markDirty = () => setIsDirty(true);
 
@@ -327,6 +360,53 @@ export const CardDetailModal = ({
                 </div>
               </div>
             )}
+          </div>
+          {/* Comments */}
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)] mb-2">
+              Comments ({comments.length})
+            </label>
+            <div className="space-y-2 mb-3" data-testid="comments-list">
+              {comments.length === 0 && (
+                <p className="text-xs text-[var(--gray-text)]">No comments yet</p>
+              )}
+              {comments.map((c) => (
+                <div key={c.id} className="group flex gap-2 rounded-xl bg-[var(--surface)] p-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-semibold text-[var(--primary-blue)]">{c.author}</p>
+                    <p className="text-sm text-[var(--navy-dark)] mt-0.5 whitespace-pre-wrap">{c.body}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteComment(c.id)}
+                    className="shrink-0 text-xs text-[var(--gray-text)] opacity-0 group-hover:opacity-100 hover:text-red-500 transition"
+                    aria-label="Delete comment"
+                    data-testid={`delete-comment-${c.id}`}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAddComment(); } }}
+                placeholder="Add a comment…"
+                className="flex-1 rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary-blue)]"
+                data-testid="new-comment-input"
+              />
+              <button
+                type="button"
+                onClick={handleAddComment}
+                disabled={!newComment.trim() || isPostingComment}
+                className="rounded-xl bg-[var(--primary-blue)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                data-testid="post-comment-btn"
+              >
+                Post
+              </button>
+            </div>
           </div>
         </div>
 

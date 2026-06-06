@@ -273,6 +273,51 @@ export async function unassignLabel(cardId: string, labelId: string): Promise<vo
   if (!res.ok) throw new Error("Failed to unassign label");
 }
 
+// --- Comments ---
+
+export type Comment = { id: string; body: string; author: string; createdAt: string };
+
+export async function listComments(cardId: string): Promise<Comment[]> {
+  const res = await fetch(apiUrl(`/api/cards/${cardId}/comments`), { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to list comments");
+  return res.json() as Promise<Comment[]>;
+}
+
+export async function createComment(cardId: string, body: string): Promise<Comment> {
+  const res = await fetch(apiUrl(`/api/cards/${cardId}/comments`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) throw new Error("Failed to create comment");
+  return res.json() as Promise<Comment>;
+}
+
+export async function deleteComment(commentId: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/comments/${commentId}`), {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to delete comment");
+}
+
+// --- Profile ---
+
+export async function updateProfile(updates: { email?: string; password?: string; currentPassword?: string }): Promise<{ username: string; email: string | null; role: string }> {
+  const res = await fetch(apiUrl("/api/auth/me"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { detail?: string }).detail ?? "Failed to update profile");
+  }
+  return res.json();
+}
+
 // --- AI ---
 
 export async function postChat(

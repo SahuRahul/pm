@@ -13,10 +13,12 @@ from database import (
     authenticate_user,
     create_board,
     create_column,
+    create_comment,
     create_label,
     create_user,
     delete_board,
     delete_column,
+    delete_comment,
     delete_label,
     delete_user,
     ensure_board,
@@ -24,10 +26,12 @@ from database import (
     get_board_owner,
     get_card_labels,
     get_column_cards,
+    get_comment_card_id,
     get_connection,
     get_user_by_username,
     init_db,
     list_boards,
+    list_comments,
     list_labels,
     list_users,
     normalize_positions,
@@ -36,6 +40,7 @@ from database import (
     unassign_label,
     update_board,
     update_label,
+    update_user,
 )
 
 
@@ -111,6 +116,31 @@ def me(username: str = Depends(verify_session)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return {"username": user["username"], "email": user["email"], "role": user["role"]}
+
+
+class UpdateProfileRequest(BaseModel):
+    email: str | None = None
+    password: str | None = None
+    currentPassword: str | None = None
+
+
+@app.patch("/api/auth/me")
+def update_profile(body: UpdateProfileRequest, username: str = Depends(verify_session)):
+    with get_connection() as conn:
+        user = get_user_by_username(conn, username)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if body.password is not None:
+            if not body.currentPassword:
+                raise HTTPException(status_code=400, detail="Current password required to change password")
+            if len(body.password) < 6:
+                raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+            from database import authenticate_user as _auth
+            if not _auth(conn, username, body.currentPassword):
+                raise HTTPException(status_code=401, detail="Current password incorrect")
+        updated = update_user(conn, user["id"], password=body.password, email=body.email)
+        conn.commit()
+    return updated
 
 
 @app.post("/api/auth/register")
@@ -620,6 +650,57 @@ def remove_label_from_card(card_id: int, label_id: int, username: str = Depends(
             raise HTTPException(status_code=403, detail="Access denied")
         unassign_label(conn, card_id, label_id)
         conn.commit()
+    return {"ok": True}
+
+
+# --- Comments ---
+
+class CreateCommentRequest(BaseModel):
+    body: str
+
+
+@app.get("/api/cards/{card_id}/comments")
+def get_comments(card_id: int, username: str = Depends(verify_session)):
+    user_id = _get_user_id(username)
+    with get_connection() as conn:
+        owner = _get_card_owner_id(conn, card_id)
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Card not found")
+        if owner != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        return list_comments(conn, card_id)
+
+
+@app.post("/api/cards/{card_id}/comments")
+def add_comment(card_id: int, body: CreateCommentRequest, username: str = Depends(verify_session)):
+    user_id = _get_user_id(username)
+    if not body.body.strip():
+        raise HTTPException(status_code=400, detail="Comment body cannot be empty")
+    with get_connection() as conn:
+        owner = _get_card_owner_id(conn, card_id)
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Card not found")
+        if owner != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        comment = create_comment(conn, card_id, user_id, body.body.strip())
+        conn.commit()
+    return comment
+
+
+@app.delete("/api/comments/{comment_id}")
+def remove_comment(comment_id: int, username: str = Depends(verify_session)):
+    user_id = _get_user_id(username)
+    with get_connection() as conn:
+        card_id = get_comment_card_id(conn, comment_id)
+        if card_id is None:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        owner = _get_card_owner_id(conn, card_id)
+        if owner != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        deleted = delete_comment(conn, comment_id, user_id)
+        conn.commit()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Comment not found or not yours")
     return {"ok": True}
 
 

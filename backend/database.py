@@ -90,6 +90,14 @@ def init_db() -> None:
               label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
               PRIMARY KEY (card_id, label_id)
             );
+
+            CREATE TABLE IF NOT EXISTS comments (
+              id         INTEGER PRIMARY KEY AUTOINCREMENT,
+              card_id    INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+              user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              body       TEXT NOT NULL,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
             """
         )
         _run_migrations(conn)
@@ -550,3 +558,66 @@ def unassign_label(conn: sqlite3.Connection, card_id: int, label_id: int) -> boo
         (card_id, label_id),
     )
     return result.rowcount > 0
+
+
+# --- Comments ---
+
+def list_comments(conn: sqlite3.Connection, card_id: int) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT c.id, c.body, c.created_at, u.username AS author
+        FROM comments c JOIN users u ON c.user_id = u.id
+        WHERE c.card_id = ?
+        ORDER BY c.created_at
+        """,
+        (card_id,),
+    ).fetchall()
+    return [
+        {"id": str(r["id"]), "body": r["body"], "author": r["author"], "createdAt": r["created_at"]}
+        for r in rows
+    ]
+
+
+def create_comment(conn: sqlite3.Connection, card_id: int, user_id: int, body: str) -> dict:
+    cursor = conn.execute(
+        "INSERT INTO comments (card_id, user_id, body) VALUES (?, ?, ?)",
+        (card_id, user_id, body),
+    )
+    comment_id = int(cursor.lastrowid)
+    row = conn.execute(
+        """
+        SELECT c.id, c.body, c.created_at, u.username AS author
+        FROM comments c JOIN users u ON c.user_id = u.id
+        WHERE c.id = ?
+        """,
+        (comment_id,),
+    ).fetchone()
+    return {"id": str(row["id"]), "body": row["body"], "author": row["author"], "createdAt": row["created_at"]}
+
+
+def delete_comment(conn: sqlite3.Connection, comment_id: int, user_id: int) -> bool:
+    result = conn.execute(
+        "DELETE FROM comments WHERE id = ? AND user_id = ?",
+        (comment_id, user_id),
+    )
+    return result.rowcount > 0
+
+
+def get_comment_card_id(conn: sqlite3.Connection, comment_id: int) -> int | None:
+    row = conn.execute("SELECT card_id FROM comments WHERE id = ?", (comment_id,)).fetchone()
+    return int(row["card_id"]) if row else None
+
+
+# --- User profile ---
+
+def update_user(conn: sqlite3.Connection, user_id: int, password: str | None = None, email: str | None = None) -> dict | None:
+    row = conn.execute("SELECT id, username, email, role FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        return None
+    if password is not None:
+        pw_hash = hash_password(password)
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (pw_hash, user_id))
+    if email is not None:
+        conn.execute("UPDATE users SET email = ? WHERE id = ?", (email, user_id))
+    new_email = email if email is not None else row["email"]
+    return {"id": str(user_id), "username": row["username"], "email": new_email, "role": row["role"]}
