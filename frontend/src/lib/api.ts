@@ -1,4 +1,4 @@
-import type { BoardData, BoardSummary, Priority } from "@/lib/kanban";
+import type { BoardData, BoardSummary, Label, Priority } from "@/lib/kanban";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
@@ -211,6 +211,66 @@ export async function moveCardApi(
     body: JSON.stringify({ columnId, position }),
   });
   if (!res.ok) throw new Error("Failed to move card");
+}
+
+// --- Labels ---
+
+export async function listLabels(): Promise<Label[]> {
+  const res = await fetch(apiUrl("/api/labels"), { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to list labels");
+  return res.json() as Promise<Label[]>;
+}
+
+export async function createLabel(name: string, color: string): Promise<Label> {
+  const res = await fetch(apiUrl("/api/labels"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ name, color }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { detail?: string }).detail ?? "Failed to create label");
+  }
+  return res.json() as Promise<Label>;
+}
+
+export async function updateLabelApi(
+  labelId: string,
+  updates: { name?: string; color?: string }
+): Promise<Label> {
+  const res = await fetch(apiUrl(`/api/labels/${labelId}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error("Failed to update label");
+  return res.json() as Promise<Label>;
+}
+
+export async function deleteLabelApi(labelId: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/labels/${labelId}`), {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to delete label");
+}
+
+export async function assignLabel(cardId: string, labelId: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/cards/${cardId}/labels/${labelId}`), {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to assign label");
+}
+
+export async function unassignLabel(cardId: string, labelId: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/cards/${cardId}/labels/${labelId}`), {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to unassign label");
 }
 
 // --- AI ---

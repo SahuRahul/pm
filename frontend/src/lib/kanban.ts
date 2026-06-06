@@ -1,11 +1,18 @@
 export type Priority = "low" | "medium" | "high";
 
+export type Label = {
+  id: string;
+  name: string;
+  color: string;
+};
+
 export type Card = {
   id: string;
   title: string;
   details: string;
   priority: Priority;
   dueDate: string | null;
+  labels: Label[];
 };
 
 export type Column = {
@@ -56,14 +63,14 @@ export const initialData: BoardData = {
     { id: "col-done", title: "Done", color: "#ecad0a", cardIds: ["card-7", "card-8"] },
   ],
   cards: {
-    "card-1": { id: "card-1", title: "Align roadmap themes", details: "Draft quarterly themes.", priority: "high", dueDate: null },
-    "card-2": { id: "card-2", title: "Gather customer signals", details: "Review support tags.", priority: "medium", dueDate: null },
-    "card-3": { id: "card-3", title: "Prototype analytics view", details: "Sketch dashboard layout.", priority: "medium", dueDate: null },
-    "card-4": { id: "card-4", title: "Refine status language", details: "Standardize column labels.", priority: "low", dueDate: null },
-    "card-5": { id: "card-5", title: "Design card layout", details: "Add hierarchy and spacing.", priority: "medium", dueDate: null },
-    "card-6": { id: "card-6", title: "QA micro-interactions", details: "Verify hover and focus.", priority: "high", dueDate: null },
-    "card-7": { id: "card-7", title: "Ship marketing page", details: "Final copy approved.", priority: "low", dueDate: null },
-    "card-8": { id: "card-8", title: "Close onboarding sprint", details: "Document release notes.", priority: "low", dueDate: null },
+    "card-1": { id: "card-1", title: "Align roadmap themes", details: "Draft quarterly themes.", priority: "high", dueDate: null, labels: [] },
+    "card-2": { id: "card-2", title: "Gather customer signals", details: "Review support tags.", priority: "medium", dueDate: null, labels: [] },
+    "card-3": { id: "card-3", title: "Prototype analytics view", details: "Sketch dashboard layout.", priority: "medium", dueDate: null, labels: [] },
+    "card-4": { id: "card-4", title: "Refine status language", details: "Standardize column labels.", priority: "low", dueDate: null, labels: [] },
+    "card-5": { id: "card-5", title: "Design card layout", details: "Add hierarchy and spacing.", priority: "medium", dueDate: null, labels: [] },
+    "card-6": { id: "card-6", title: "QA micro-interactions", details: "Verify hover and focus.", priority: "high", dueDate: null, labels: [] },
+    "card-7": { id: "card-7", title: "Ship marketing page", details: "Final copy approved.", priority: "low", dueDate: null, labels: [] },
+    "card-8": { id: "card-8", title: "Close onboarding sprint", details: "Document release notes.", priority: "low", dueDate: null, labels: [] },
   },
 };
 

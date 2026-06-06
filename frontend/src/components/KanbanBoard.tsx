@@ -15,21 +15,29 @@ import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { AIChatSidebar } from "@/components/AIChatSidebar";
 import { BoardSelector } from "@/components/BoardSelector";
+import { CardDetailModal } from "@/components/CardDetailModal";
+import { SearchFilter, applyFilter, emptyFilter, type FilterState } from "@/components/SearchFilter";
 import {
+  assignLabel,
   createCard,
+  createColumn,
   deleteCard,
   deleteColumn,
-  listBoards,
   getBoard,
+  listBoards,
+  listLabels,
   moveCardApi,
+  unassignLabel,
+  updateCard,
   updateColumn,
-  createColumn,
 } from "@/lib/api";
 import {
   createId,
   moveCard,
   type BoardData,
   type BoardSummary,
+  type Card,
+  type Label,
   type Priority,
 } from "@/lib/kanban";
 
@@ -80,7 +88,10 @@ export const KanbanBoard = ({
   const [boards, setBoards] = useState<BoardSummary[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [board, setBoard] = useState<BoardData | null>(initialBoard ?? null);
+  const [allLabels, setAllLabels] = useState<Label[]>([]);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [modalCardId, setModalCardId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterState>(emptyFilter);
   const [isLoading, setIsLoading] = useState(useApi && !initialBoard);
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -109,9 +120,10 @@ export const KanbanBoard = ({
     const init = async () => {
       setIsLoading(true);
       try {
-        const boardList = await listBoards();
+        const [boardList, labels] = await Promise.all([listBoards(), listLabels()]);
         if (!active) return;
         setBoards(boardList);
+        setAllLabels(labels);
         if (boardList.length > 0) {
           const data = await getBoard(boardList[0].id);
           if (!active) return;
@@ -129,15 +141,30 @@ export const KanbanBoard = ({
   }, [useApi, initialBoard, loadBoard]);
 
   const handleBoardSelect = async (boardId: string) => {
+    setFilter(emptyFilter);
     await loadBoard(boardId);
   };
 
-  const handleBoardsChange = (updated: BoardSummary[]) => {
-    setBoards(updated);
-  };
+  const handleBoardsChange = (updated: BoardSummary[]) => setBoards(updated);
 
   const cardsById = useMemo(() => board?.cards ?? {}, [board?.cards]);
   const denormalizedBoard = useMemo(() => (board ? denormalizeBoard(board) : null), [board]);
+
+  // Compute filtered card IDs per column
+  const filteredCardIds = useMemo(() => {
+    if (!board) return {};
+    const result: Record<string, string[]> = {};
+    for (const col of board.columns) {
+      result[col.id] = applyFilter(col.cardIds, board.cards, filter);
+    }
+    return result;
+  }, [board, filter]);
+
+  const totalCards = useMemo(() => Object.keys(cardsById).length, [cardsById]);
+  const visibleCards = useMemo(
+    () => Object.values(filteredCardIds).reduce((sum, ids) => sum + ids.length, 0),
+    [filteredCardIds]
+  );
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
@@ -191,22 +218,18 @@ export const KanbanBoard = ({
 
   const handleAddColumn = async () => {
     if (!board || !activeBoardId) return;
-    const title = "New Column";
     if (!useApi) {
       const id = createId("col");
       setBoard((prev) =>
-        prev ? { ...prev, columns: [...prev.columns, { id, title, color: "#ecad0a", cardIds: [] }] } : prev
+        prev ? { ...prev, columns: [...prev.columns, { id, title: "New Column", color: "#ecad0a", cardIds: [] }] } : prev
       );
       return;
     }
     try {
-      const col = await createColumn(parseInt(activeBoardId), title);
+      const col = await createColumn(parseInt(activeBoardId), "New Column");
       setBoard((prev) =>
         prev
-          ? {
-              ...prev,
-              columns: [...prev.columns, { id: `col-${col.id}`, title: col.title, color: col.color, cardIds: [] }],
-            }
+          ? { ...prev, columns: [...prev.columns, { id: `col-${col.id}`, title: col.title, color: col.color, cardIds: [] }] }
           : prev
       );
       setError(null);
@@ -217,7 +240,7 @@ export const KanbanBoard = ({
 
   const handleDeleteColumn = async (columnId: string) => {
     if (!board) return;
-    if (!confirm(`Delete this column and all its cards?`)) return;
+    if (!confirm("Delete this column and all its cards?")) return;
     const prevBoard = board;
     setBoard((prev) =>
       prev ? { ...prev, columns: prev.columns.filter((c) => c.id !== columnId) } : prev
@@ -240,10 +263,9 @@ export const KanbanBoard = ({
     dueDate: string | null
   ) => {
     if (!board) return;
-
     if (!useApi) {
       const id = createId("card");
-      const card = { id, title, details: details || "", priority, dueDate };
+      const card: Card = { id, title, details: details || "", priority, dueDate, labels: [] };
       setBoard((prev) =>
         prev
           ? {
@@ -257,7 +279,6 @@ export const KanbanBoard = ({
       );
       return;
     }
-
     try {
       const card = await createCard(stripId(columnId), title, details, priority, dueDate ?? undefined);
       const prefixedCardId = `card-${card.id}`;
@@ -273,6 +294,7 @@ export const KanbanBoard = ({
                   details: card.details,
                   priority: card.priority,
                   dueDate: card.dueDate,
+                  labels: [],
                 },
               },
               columns: prev.columns.map((c) =>
@@ -289,6 +311,7 @@ export const KanbanBoard = ({
 
   const handleDeleteCard = async (columnId: string, cardId: string) => {
     if (!board) return;
+    if (modalCardId === cardId) setModalCardId(null);
     const prevBoard = board;
     setBoard((prev) =>
       prev
@@ -310,6 +333,33 @@ export const KanbanBoard = ({
       setError("Unable to delete card.");
     }
   };
+
+  const handleCardUpdate = async (cardId: string, updates: Partial<Card>) => {
+    if (!board) return;
+    // Optimistic update
+    setBoard((prev) =>
+      prev
+        ? { ...prev, cards: { ...prev.cards, [cardId]: { ...prev.cards[cardId], ...updates } } }
+        : prev
+    );
+    if (!useApi || !updates) return;
+    // Only send scalar fields to the API (labels have their own endpoints)
+    const { labels: _labels, ...scalarUpdates } = updates;
+    if (Object.keys(scalarUpdates).length === 0) return;
+    try {
+      await updateCard(String(stripId(cardId)), {
+        title: scalarUpdates.title,
+        details: scalarUpdates.details,
+        priority: scalarUpdates.priority,
+        dueDate: scalarUpdates.dueDate,
+      });
+      setError(null);
+    } catch {
+      setError("Unable to update card.");
+    }
+  };
+
+  const modalCard = modalCardId ? cardsById[modalCardId] : null;
 
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
 
@@ -339,7 +389,8 @@ export const KanbanBoard = ({
     <div className="relative overflow-hidden">
       <BgGradients />
 
-      <main className="relative mx-auto flex min-h-screen max-w-[1600px] flex-col gap-10 px-6 pb-16 pt-12">
+      <main className="relative mx-auto flex min-h-screen max-w-[1600px] flex-col gap-6 px-6 pb-16 pt-12">
+        {/* Header */}
         <header className="flex flex-col gap-6 rounded-[32px] border border-[var(--stroke)] bg-white/80 p-8 shadow-[var(--shadow)] backdrop-blur">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
@@ -398,15 +449,21 @@ export const KanbanBoard = ({
                 key={column.id}
                 className="flex items-center gap-2 rounded-full border border-[var(--stroke)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)]"
               >
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: column.color || "var(--accent-yellow)" }}
-                />
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: column.color || "var(--accent-yellow)" }} />
                 {column.title}
               </div>
             ))}
           </div>
         </header>
+
+        {/* Search/filter bar */}
+        <SearchFilter
+          filter={filter}
+          onChange={setFilter}
+          labels={allLabels}
+          totalCards={totalCards}
+          visibleCards={visibleCards}
+        />
 
         {error && (
           <div className="rounded-2xl border border-[rgba(236,173,10,0.45)] bg-[rgba(236,173,10,0.12)] px-6 py-4 text-sm text-[var(--navy-dark)]">
@@ -430,11 +487,12 @@ export const KanbanBoard = ({
                   <KanbanColumn
                     key={column.id}
                     column={column}
-                    cards={column.cardIds.map((cardId) => board.cards[cardId])}
+                    cards={filteredCardIds[column.id]?.map((cardId) => board.cards[cardId])}
                     onRename={handleRenameColumn}
                     onAddCard={handleAddCard}
                     onDeleteCard={handleDeleteCard}
                     onDeleteColumn={board.columns.length > 1 ? handleDeleteColumn : undefined}
+                    onCardClick={(cardId) => setModalCardId(cardId)}
                   />
                 ))}
               </section>
@@ -468,6 +526,25 @@ export const KanbanBoard = ({
           </div>
         </div>
       </main>
+
+      {/* Card detail modal */}
+      {modalCard && (
+        <CardDetailModal
+          card={modalCard}
+          allLabels={allLabels}
+          useApi={useApi}
+          onSave={async (updates) => {
+            await handleCardUpdate(modalCardId!, updates);
+          }}
+          onDelete={() => {
+            const col = board.columns.find((c) => c.cardIds.includes(modalCardId!));
+            if (col) handleDeleteCard(col.id, modalCardId!);
+            setModalCardId(null);
+          }}
+          onClose={() => setModalCardId(null)}
+          onLabelsChange={(labels) => setAllLabels(labels)}
+        />
+      )}
     </div>
   );
 };

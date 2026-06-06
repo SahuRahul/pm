@@ -9,26 +9,33 @@ from ai import AIResponse, KanbanUpdate, call_claude, chat_with_claude
 from auth import clear_session, create_session, verify_session
 from database import (
     apply_kanban_update,
+    assign_label,
     authenticate_user,
     create_board,
     create_column,
+    create_label,
     create_user,
     delete_board,
     delete_column,
+    delete_label,
     delete_user,
     ensure_board,
     fetch_board,
     get_board_owner,
+    get_card_labels,
     get_column_cards,
     get_connection,
     get_user_by_username,
     init_db,
     list_boards,
+    list_labels,
     list_users,
     normalize_positions,
     reorder_column,
     reorder_columns,
+    unassign_label,
     update_board,
+    update_label,
 )
 
 
@@ -497,6 +504,123 @@ def ai_chat(body: ChatRequest, username: str = Depends(verify_session)):
             board = fetch_board(conn, user_id, board_id)
 
     return {"message": ai_response.message, "board": board}
+
+
+# --- Labels ---
+
+class CreateLabelRequest(BaseModel):
+    name: str
+    color: str = "#209dd7"
+
+
+class UpdateLabelRequest(BaseModel):
+    name: str | None = None
+    color: str | None = None
+
+
+def _get_card_owner_id(conn, card_id: int) -> int | None:
+    """Return the user_id who owns the card, or None if not found."""
+    row = conn.execute(
+        """
+        SELECT b.user_id FROM cards c
+        JOIN columns col ON c.column_id = col.id
+        JOIN boards b ON col.board_id = b.id
+        WHERE c.id = ?
+        """,
+        (card_id,),
+    ).fetchone()
+    return int(row["user_id"]) if row else None
+
+
+@app.get("/api/labels")
+def get_labels(username: str = Depends(verify_session)):
+    user_id = _get_user_id(username)
+    with get_connection() as conn:
+        return list_labels(conn, user_id)
+
+
+@app.post("/api/labels")
+def add_label(body: CreateLabelRequest, username: str = Depends(verify_session)):
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="Label name cannot be empty")
+    user_id = _get_user_id(username)
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM labels WHERE user_id = ? AND name = ?",
+            (user_id, body.name.strip()),
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail="Label name already exists")
+        label = create_label(conn, user_id, body.name.strip(), body.color)
+        conn.commit()
+    return label
+
+
+@app.patch("/api/labels/{label_id}")
+def patch_label(label_id: int, body: UpdateLabelRequest, username: str = Depends(verify_session)):
+    user_id = _get_user_id(username)
+    with get_connection() as conn:
+        updated = update_label(conn, label_id, user_id, body.name, body.color)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Label not found")
+        conn.commit()
+    return updated
+
+
+@app.delete("/api/labels/{label_id}")
+def remove_label(label_id: int, username: str = Depends(verify_session)):
+    user_id = _get_user_id(username)
+    with get_connection() as conn:
+        deleted = delete_label(conn, label_id, user_id)
+        conn.commit()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Label not found")
+    return {"ok": True}
+
+
+@app.get("/api/cards/{card_id}/labels")
+def get_labels_for_card(card_id: int, username: str = Depends(verify_session)):
+    user_id = _get_user_id(username)
+    with get_connection() as conn:
+        owner = _get_card_owner_id(conn, card_id)
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Card not found")
+        if owner != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        return get_card_labels(conn, card_id)
+
+
+@app.post("/api/cards/{card_id}/labels/{label_id}")
+def add_label_to_card(card_id: int, label_id: int, username: str = Depends(verify_session)):
+    user_id = _get_user_id(username)
+    with get_connection() as conn:
+        owner = _get_card_owner_id(conn, card_id)
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Card not found")
+        if owner != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        label_row = conn.execute(
+            "SELECT id FROM labels WHERE id = ? AND user_id = ?", (label_id, user_id)
+        ).fetchone()
+        if not label_row:
+            raise HTTPException(status_code=404, detail="Label not found")
+        assign_label(conn, card_id, label_id)
+        conn.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/cards/{card_id}/labels/{label_id}")
+def remove_label_from_card(card_id: int, label_id: int, username: str = Depends(verify_session)):
+    user_id = _get_user_id(username)
+    with get_connection() as conn:
+        owner = _get_card_owner_id(conn, card_id)
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Card not found")
+        if owner != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        unassign_label(conn, card_id, label_id)
+        conn.commit()
+    return {"ok": True}
 
 
 # --- Backward-compat: single board endpoint ---

@@ -75,6 +75,21 @@ def init_db() -> None:
               due_date    TEXT,
               created_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS labels (
+              id         INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              name       TEXT NOT NULL,
+              color      TEXT NOT NULL DEFAULT '#209dd7',
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              UNIQUE(user_id, name)
+            );
+
+            CREATE TABLE IF NOT EXISTS card_labels (
+              card_id  INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+              label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+              PRIMARY KEY (card_id, label_id)
+            );
             """
         )
         _run_migrations(conn)
@@ -347,6 +362,25 @@ def fetch_board(conn: sqlite3.Connection, user_id: int, board_id: int | None = N
         (board_id,),
     ).fetchall()
 
+    # Fetch labels for all cards in this board
+    card_ids_in_board = [int(r["id"]) for r in cards_rows]
+    card_labels_map: dict[str, list[dict]] = {str(cid): [] for cid in card_ids_in_board}
+    if card_ids_in_board:
+        placeholders = ",".join("?" * len(card_ids_in_board))
+        label_rows = conn.execute(
+            f"""
+            SELECT cl.card_id, l.id, l.name, l.color
+            FROM card_labels cl
+            JOIN labels l ON cl.label_id = l.id
+            WHERE cl.card_id IN ({placeholders})
+            """,
+            card_ids_in_board,
+        ).fetchall()
+        for lr in label_rows:
+            card_labels_map[str(lr["card_id"])].append(
+                {"id": str(lr["id"]), "name": lr["name"], "color": lr["color"]}
+            )
+
     for row in cards_rows:
         card_id = str(row["id"])
         cards_map[card_id] = {
@@ -355,6 +389,7 @@ def fetch_board(conn: sqlite3.Connection, user_id: int, board_id: int | None = N
             "details": row["details"],
             "priority": row["priority"],
             "dueDate": row["due_date"],
+            "labels": card_labels_map.get(card_id, []),
         }
         column_card_ids[int(row["column_id"])].append(card_id)
 
@@ -437,3 +472,81 @@ def apply_kanban_update(conn: sqlite3.Connection, columns: list[dict]) -> None:
                     "INSERT INTO cards (column_id, title, details, position, priority, due_date) VALUES (?, ?, ?, ?, ?, ?)",
                     (column_id, title, details, position, priority, due_date),
                 )
+
+
+# --- Labels ---
+
+def list_labels(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT id, name, color, created_at FROM labels WHERE user_id = ? ORDER BY name",
+        (user_id,),
+    ).fetchall()
+    return [{"id": str(r["id"]), "name": r["name"], "color": r["color"]} for r in rows]
+
+
+def create_label(conn: sqlite3.Connection, user_id: int, name: str, color: str) -> dict:
+    cursor = conn.execute(
+        "INSERT INTO labels (user_id, name, color) VALUES (?, ?, ?)",
+        (user_id, name, color),
+    )
+    return {"id": str(int(cursor.lastrowid)), "name": name, "color": color}
+
+
+def update_label(conn: sqlite3.Connection, label_id: int, user_id: int, name: str | None, color: str | None) -> dict | None:
+    row = conn.execute(
+        "SELECT id, name, color FROM labels WHERE id = ? AND user_id = ?",
+        (label_id, user_id),
+    ).fetchone()
+    if not row:
+        return None
+    new_name = name if name is not None else row["name"]
+    new_color = color if color is not None else row["color"]
+    conn.execute(
+        "UPDATE labels SET name = ?, color = ? WHERE id = ?",
+        (new_name, new_color, label_id),
+    )
+    return {"id": str(label_id), "name": new_name, "color": new_color}
+
+
+def delete_label(conn: sqlite3.Connection, label_id: int, user_id: int) -> bool:
+    result = conn.execute(
+        "DELETE FROM labels WHERE id = ? AND user_id = ?",
+        (label_id, user_id),
+    )
+    return result.rowcount > 0
+
+
+def get_card_labels(conn: sqlite3.Connection, card_id: int) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT l.id, l.name, l.color
+        FROM card_labels cl JOIN labels l ON cl.label_id = l.id
+        WHERE cl.card_id = ?
+        ORDER BY l.name
+        """,
+        (card_id,),
+    ).fetchall()
+    return [{"id": str(r["id"]), "name": r["name"], "color": r["color"]} for r in rows]
+
+
+def assign_label(conn: sqlite3.Connection, card_id: int, label_id: int) -> bool:
+    """Assign a label to a card. Returns False if already assigned."""
+    existing = conn.execute(
+        "SELECT 1 FROM card_labels WHERE card_id = ? AND label_id = ?",
+        (card_id, label_id),
+    ).fetchone()
+    if existing:
+        return False
+    conn.execute(
+        "INSERT INTO card_labels (card_id, label_id) VALUES (?, ?)",
+        (card_id, label_id),
+    )
+    return True
+
+
+def unassign_label(conn: sqlite3.Connection, card_id: int, label_id: int) -> bool:
+    result = conn.execute(
+        "DELETE FROM card_labels WHERE card_id = ? AND label_id = ?",
+        (card_id, label_id),
+    )
+    return result.rowcount > 0
