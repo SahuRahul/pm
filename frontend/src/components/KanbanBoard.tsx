@@ -115,6 +115,11 @@ export const KanbanBoard = ({
 
   const cardsById = useMemo(() => board?.cards ?? {}, [board?.cards]);
 
+  const denormalizedBoard = useMemo(
+    () => (board ? denormalizeBoard(board) : null),
+    [board]
+  );
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
   };
@@ -128,6 +133,7 @@ export const KanbanBoard = ({
     }
 
     const activeId = active.id as string;
+    const prevColumns = board.columns;
     const nextColumns = moveCard(board.columns, activeId, over.id as string);
 
     setBoard((prev) => (prev ? { ...prev, columns: nextColumns } : prev));
@@ -146,6 +152,7 @@ export const KanbanBoard = ({
     const position = targetColumn.cardIds.indexOf(activeId);
     const columnId = stripId(targetColumn.id);
     if (!Number.isFinite(columnId)) {
+      setBoard((prev) => (prev ? { ...prev, columns: prevColumns } : prev));
       setError("Unable to move card.");
       return;
     }
@@ -158,9 +165,13 @@ export const KanbanBoard = ({
         body: JSON.stringify({ columnId, position }),
       });
       if (!response.ok) {
+        setBoard((prev) => (prev ? { ...prev, columns: prevColumns } : prev));
         setError("Unable to move card.");
+      } else {
+        setError(null);
       }
     } catch {
+      setBoard((prev) => (prev ? { ...prev, columns: prevColumns } : prev));
       setError("Unable to move card.");
     }
   };
@@ -169,6 +180,7 @@ export const KanbanBoard = ({
     if (!board) {
       return;
     }
+    const prevColumns = board.columns;
     setBoard((prev) =>
       prev
         ? {
@@ -192,9 +204,13 @@ export const KanbanBoard = ({
         body: JSON.stringify({ title }),
       });
       if (!response.ok) {
+        setBoard((prev) => (prev ? { ...prev, columns: prevColumns } : prev));
         setError("Unable to rename column.");
+      } else {
+        setError(null);
       }
     } catch {
+      setBoard((prev) => (prev ? { ...prev, columns: prevColumns } : prev));
       setError("Unable to rename column.");
     }
   };
@@ -262,6 +278,7 @@ export const KanbanBoard = ({
             }
           : prev
       );
+      setError(null);
     } catch {
       setError("Unable to add card.");
     }
@@ -321,6 +338,7 @@ export const KanbanBoard = ({
             }
           : prev
       );
+      setError(null);
     } catch {
       setError("Unable to delete card.");
     }
@@ -455,7 +473,7 @@ export const KanbanBoard = ({
             style={{ height: "calc(100vh - 200px)", position: "sticky", top: "24px", display: sidebarOpen ? "flex" : "none", flexDirection: "column" }}
           >
             <AIChatSidebar
-              board={denormalizeBoard(board)}
+              board={denormalizedBoard!}
               onBoardUpdate={(updated) => setBoard(normalizeBoard(updated))}
             />
           </div>
