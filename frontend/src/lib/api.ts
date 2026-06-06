@@ -4,6 +4,11 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
 
+async function throwApiError(res: Response, fallback: string): Promise<never> {
+  const data = await res.json().catch(() => ({}));
+  throw new Error((data as { detail?: string }).detail ?? fallback);
+}
+
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type ChatResponse = { message: string; board: BoardData };
 export type UserInfo = { username: string; email: string | null; role: string };
@@ -31,10 +36,7 @@ export async function postRegister(
     credentials: "include",
     body: JSON.stringify({ username, password, email }),
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string }).detail ?? "Registration failed");
-  }
+  if (!res.ok) await throwApiError(res, "Registration failed");
 }
 
 export async function postLogout(): Promise<void> {
@@ -71,10 +73,7 @@ export async function createBoard(name: string, description?: string): Promise<{
     credentials: "include",
     body: JSON.stringify({ name, description: description ?? "" }),
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string }).detail ?? "Failed to create board");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to create board");
   return res.json() as Promise<{ id: string; name: string }>;
 }
 
@@ -97,10 +96,7 @@ export async function deleteBoard(boardId: string): Promise<void> {
     method: "DELETE",
     credentials: "include",
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string }).detail ?? "Failed to delete board");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to delete board");
 }
 
 export async function reorderColumns(boardId: string, columnIds: number[]): Promise<void> {
@@ -126,10 +122,7 @@ export async function createColumn(
     credentials: "include",
     body: JSON.stringify({ boardId, title, color: color ?? "#ecad0a" }),
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string }).detail ?? "Failed to create column");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to create column");
   return res.json() as Promise<{ id: string; title: string; color: string; cardIds: string[] }>;
 }
 
@@ -152,10 +145,7 @@ export async function deleteColumn(columnId: string): Promise<void> {
     method: "DELETE",
     credentials: "include",
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string }).detail ?? "Failed to delete column");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to delete column");
 }
 
 // --- Cards ---
@@ -228,10 +218,7 @@ export async function createLabel(name: string, color: string): Promise<Label> {
     credentials: "include",
     body: JSON.stringify({ name, color }),
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string }).detail ?? "Failed to create label");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to create label");
   return res.json() as Promise<Label>;
 }
 
@@ -311,10 +298,7 @@ export async function updateProfile(updates: { email?: string; password?: string
     credentials: "include",
     body: JSON.stringify(updates),
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string }).detail ?? "Failed to update profile");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to update profile");
   return res.json();
 }
 

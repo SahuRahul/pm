@@ -74,11 +74,8 @@ export const initialData: BoardData = {
   },
 };
 
-const isColumnId = (columns: Column[], id: string) =>
-  columns.some((column) => column.id === id);
-
 const findColumnId = (columns: Column[], id: string) => {
-  if (isColumnId(columns, id)) return id;
+  if (columns.some((c) => c.id === id)) return id;
   return columns.find((column) => column.cardIds.includes(id))?.id;
 };
 
@@ -96,7 +93,7 @@ export const moveCard = (
   const overColumn = columns.find((c) => c.id === overColumnId);
   if (!activeColumn || !overColumn) return columns;
 
-  const isOverColumn = isColumnId(columns, overId);
+  const isOverColumn = columns.some((c) => c.id === overId);
 
   if (activeColumnId === overColumnId) {
     if (isOverColumn) {

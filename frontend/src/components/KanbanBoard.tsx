@@ -149,10 +149,11 @@ export const KanbanBoard = ({
     await loadBoard(boardId);
   };
 
-  const handleBoardsChange = (updated: BoardSummary[]) => setBoards(updated);
-
   const cardsById = useMemo(() => board?.cards ?? {}, [board?.cards]);
-  const denormalizedBoard = useMemo(() => (board ? denormalizeBoard(board) : null), [board]);
+  const denormalizedBoard = useMemo(
+    () => (sidebarOpen && board ? denormalizeBoard(board) : null),
+    [sidebarOpen, board]
+  );
 
   // Compute filtered card IDs per column
   const filteredCardIds = useMemo(() => {
@@ -393,27 +394,8 @@ export const KanbanBoard = ({
 
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
 
-  if (isLoading) {
-    return (
-      <div className="relative overflow-hidden">
-        <BgGradients />
-        <main className="relative mx-auto flex min-h-screen max-w-[720px] items-center justify-center px-6 py-16 text-sm font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
-          Loading board
-        </main>
-      </div>
-    );
-  }
-
-  if (!board) {
-    return (
-      <div className="relative overflow-hidden">
-        <BgGradients />
-        <main className="relative mx-auto flex min-h-screen max-w-[720px] items-center justify-center px-6 py-16 text-sm font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
-          Board unavailable
-        </main>
-      </div>
-    );
-  }
+  if (isLoading) return <FullscreenMessage text="Loading board" />;
+  if (!board) return <FullscreenMessage text="Board unavailable" />;
 
   return (
     <div className="relative overflow-hidden">
@@ -442,7 +424,7 @@ export const KanbanBoard = ({
                   boards={boards}
                   activeBoardId={activeBoardId}
                   onSelect={handleBoardSelect}
-                  onBoardsChange={handleBoardsChange}
+                  onBoardsChange={setBoards}
                 />
               )}
               <div className="flex items-center gap-3">
@@ -588,6 +570,15 @@ export const KanbanBoard = ({
     </div>
   );
 };
+
+const FullscreenMessage = ({ text }: { text: string }) => (
+  <div className="relative overflow-hidden">
+    <BgGradients />
+    <main className="relative mx-auto flex min-h-screen max-w-[720px] items-center justify-center px-6 py-16 text-sm font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
+      {text}
+    </main>
+  </div>
+);
 
 const BgGradients = () => (
   <>

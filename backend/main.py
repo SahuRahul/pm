@@ -135,8 +135,7 @@ def update_profile(body: UpdateProfileRequest, username: str = Depends(verify_se
                 raise HTTPException(status_code=400, detail="Current password required to change password")
             if len(body.password) < 6:
                 raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
-            from database import authenticate_user as _auth
-            if not _auth(conn, username, body.currentPassword):
+            if not authenticate_user(conn, username, body.currentPassword):
                 raise HTTPException(status_code=401, detail="Current password incorrect")
         updated = update_user(conn, user["id"], password=body.password, email=body.email)
         conn.commit()
@@ -252,8 +251,8 @@ def remove_board(board_id: int, username: str = Depends(verify_session)):
     user_id = _get_user_id(username)
     _require_board_access(user_id, board_id)
     with get_connection() as conn:
-        remaining = list_boards(conn, user_id)
-        if len(remaining) <= 1:
+        board_count = conn.execute("SELECT COUNT(*) as cnt FROM boards WHERE user_id = ?", (user_id,)).fetchone()["cnt"]
+        if board_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot delete your only board")
         deleted = delete_board(conn, board_id)
         conn.commit()
@@ -307,14 +306,8 @@ def update_column(
 ):
     user_id = _get_user_id(username)
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT c.id, c.title, c.color, b.user_id FROM columns c JOIN boards b ON c.board_id = b.id WHERE c.id = ?",
-            (column_id,),
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Column not found")
-        if int(row["user_id"]) != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        _verify_column_access(conn, column_id, user_id)
+        row = conn.execute("SELECT title, color FROM columns WHERE id = ?", (column_id,)).fetchone()
         new_title = body.title if body.title is not None else row["title"]
         new_color = body.color if body.color is not None else row["color"]
         conn.execute(
@@ -329,15 +322,8 @@ def update_column(
 def remove_column(column_id: int, username: str = Depends(verify_session)):
     user_id = _get_user_id(username)
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT c.board_id, b.user_id FROM columns c JOIN boards b ON c.board_id = b.id WHERE c.id = ?",
-            (column_id,),
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Column not found")
-        if int(row["user_id"]) != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-        board_id = int(row["board_id"])
+        _verify_column_access(conn, column_id, user_id)
+        board_id = int(conn.execute("SELECT board_id FROM columns WHERE id = ?", (column_id,)).fetchone()["board_id"])
         col_count = conn.execute(
             "SELECT COUNT(*) as cnt FROM columns WHERE board_id = ?",
             (board_id,),
@@ -373,6 +359,10 @@ class MoveCardRequest(BaseModel):
     position: int
 
 
+def _coerce_priority(value: str | None, fallback: str = "medium") -> str:
+    return value if value in ("low", "medium", "high") else fallback
+
+
 def _verify_column_access(conn, column_id: int, user_id: int) -> None:
     row = conn.execute(
         "SELECT b.user_id FROM columns c JOIN boards b ON c.board_id = b.id WHERE c.id = ?",
@@ -394,7 +384,7 @@ def create_card(body: CreateCardRequest, username: str = Depends(verify_session)
             (body.columnId,),
         ).fetchone()
         next_pos = int(row["next_pos"])
-        priority = body.priority if body.priority in ("low", "medium", "high") else "medium"
+        priority = _coerce_priority(body.priority)
         cursor = conn.execute(
             "INSERT INTO cards (column_id, title, details, position, priority, due_date) VALUES (?, ?, ?, ?, ?, ?)",
             (body.columnId, body.title, body.details or "", next_pos, priority, body.dueDate),
@@ -430,9 +420,7 @@ def update_card(
         _verify_column_access(conn, int(row["col_id"]), user_id)
         title = body.title if body.title is not None else row["title"]
         details = body.details if body.details is not None else row["details"]
-        priority = body.priority if body.priority is not None else row["priority"]
-        if priority not in ("low", "medium", "high"):
-            priority = "medium"
+        priority = _coerce_priority(body.priority if body.priority is not None else row["priority"])
         due_date = body.dueDate if body.dueDate is not None else row["due_date"]
         conn.execute(
             "UPDATE cards SET title = ?, details = ?, priority = ?, due_date = ? WHERE id = ?",
@@ -520,18 +508,15 @@ def ai_chat(body: ChatRequest, username: str = Depends(verify_session)):
 
     ai_response: AIResponse = chat_with_claude(body.messages, body.board)
 
-    if ai_response.kanban_update:
-        cols = [
-            {"id": col.id, "cards": [{"id": c.id, "title": c.title, "details": c.details} for c in col.cards]}
-            for col in ai_response.kanban_update.columns
-        ]
-        with get_connection() as conn:
+    with get_connection() as conn:
+        if ai_response.kanban_update:
+            cols = [
+                {"id": col.id, "cards": [{"id": c.id, "title": c.title, "details": c.details} for c in col.cards]}
+                for col in ai_response.kanban_update.columns
+            ]
             apply_kanban_update(conn, cols)
             conn.commit()
-            board = fetch_board(conn, user_id, board_id)
-    else:
-        with get_connection() as conn:
-            board = fetch_board(conn, user_id, board_id)
+        board = fetch_board(conn, user_id, board_id)
 
     return {"message": ai_response.message, "board": board}
 
@@ -560,6 +545,14 @@ def _get_card_owner_id(conn, card_id: int) -> int | None:
         (card_id,),
     ).fetchone()
     return int(row["user_id"]) if row else None
+
+
+def _require_card_access(conn, card_id: int, user_id: int) -> None:
+    owner = _get_card_owner_id(conn, card_id)
+    if owner is None:
+        raise HTTPException(status_code=404, detail="Card not found")
+    if owner != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
 
 @app.get("/api/labels")
@@ -612,11 +605,7 @@ def remove_label(label_id: int, username: str = Depends(verify_session)):
 def get_labels_for_card(card_id: int, username: str = Depends(verify_session)):
     user_id = _get_user_id(username)
     with get_connection() as conn:
-        owner = _get_card_owner_id(conn, card_id)
-        if owner is None:
-            raise HTTPException(status_code=404, detail="Card not found")
-        if owner != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        _require_card_access(conn, card_id, user_id)
         return get_card_labels(conn, card_id)
 
 
@@ -624,11 +613,7 @@ def get_labels_for_card(card_id: int, username: str = Depends(verify_session)):
 def add_label_to_card(card_id: int, label_id: int, username: str = Depends(verify_session)):
     user_id = _get_user_id(username)
     with get_connection() as conn:
-        owner = _get_card_owner_id(conn, card_id)
-        if owner is None:
-            raise HTTPException(status_code=404, detail="Card not found")
-        if owner != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        _require_card_access(conn, card_id, user_id)
         label_row = conn.execute(
             "SELECT id FROM labels WHERE id = ? AND user_id = ?", (label_id, user_id)
         ).fetchone()
@@ -643,11 +628,7 @@ def add_label_to_card(card_id: int, label_id: int, username: str = Depends(verif
 def remove_label_from_card(card_id: int, label_id: int, username: str = Depends(verify_session)):
     user_id = _get_user_id(username)
     with get_connection() as conn:
-        owner = _get_card_owner_id(conn, card_id)
-        if owner is None:
-            raise HTTPException(status_code=404, detail="Card not found")
-        if owner != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        _require_card_access(conn, card_id, user_id)
         unassign_label(conn, card_id, label_id)
         conn.commit()
     return {"ok": True}
@@ -663,11 +644,7 @@ class CreateCommentRequest(BaseModel):
 def get_comments(card_id: int, username: str = Depends(verify_session)):
     user_id = _get_user_id(username)
     with get_connection() as conn:
-        owner = _get_card_owner_id(conn, card_id)
-        if owner is None:
-            raise HTTPException(status_code=404, detail="Card not found")
-        if owner != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        _require_card_access(conn, card_id, user_id)
         return list_comments(conn, card_id)
 
 
@@ -677,11 +654,7 @@ def add_comment(card_id: int, body: CreateCommentRequest, username: str = Depend
     if not body.body.strip():
         raise HTTPException(status_code=400, detail="Comment body cannot be empty")
     with get_connection() as conn:
-        owner = _get_card_owner_id(conn, card_id)
-        if owner is None:
-            raise HTTPException(status_code=404, detail="Card not found")
-        if owner != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        _require_card_access(conn, card_id, user_id)
         comment = create_comment(conn, card_id, user_id, body.body.strip())
         conn.commit()
     return comment

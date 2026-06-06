@@ -244,29 +244,30 @@ def create_board(conn: sqlite3.Connection, user_id: int, name: str, description:
 
 def list_boards(conn: sqlite3.Connection, user_id: int) -> list[dict]:
     rows = conn.execute(
-        "SELECT id, name, description, created_at FROM boards WHERE user_id = ? ORDER BY created_at",
+        """
+        SELECT b.id, b.name, b.description, b.created_at,
+               COUNT(DISTINCT col.id) AS col_count,
+               COUNT(DISTINCT c.id)   AS card_count
+        FROM boards b
+        LEFT JOIN columns col ON col.board_id = b.id
+        LEFT JOIN cards c ON c.column_id = col.id
+        WHERE b.user_id = ?
+        GROUP BY b.id
+        ORDER BY b.created_at
+        """,
         (user_id,),
     ).fetchall()
-    result = []
-    for row in rows:
-        board_id = int(row["id"])
-        card_count = conn.execute(
-            "SELECT COUNT(*) as cnt FROM cards WHERE column_id IN (SELECT id FROM columns WHERE board_id = ?)",
-            (board_id,),
-        ).fetchone()["cnt"]
-        col_count = conn.execute(
-            "SELECT COUNT(*) as cnt FROM columns WHERE board_id = ?",
-            (board_id,),
-        ).fetchone()["cnt"]
-        result.append({
-            "id": str(board_id),
+    return [
+        {
+            "id": str(int(row["id"])),
             "name": row["name"],
             "description": row["description"],
             "createdAt": row["created_at"],
-            "cardCount": card_count,
-            "columnCount": col_count,
-        })
-    return result
+            "cardCount": row["card_count"],
+            "columnCount": row["col_count"],
+        }
+        for row in rows
+    ]
 
 
 def get_board_owner(conn: sqlite3.Connection, board_id: int) -> int | None:
@@ -343,12 +344,11 @@ def reorder_columns(conn: sqlite3.Connection, board_id: int, column_ids: list[in
 def fetch_board(conn: sqlite3.Connection, user_id: int, board_id: int | None = None) -> dict[str, Any]:
     if board_id is None:
         board_id = ensure_board(conn, user_id)
+        row = conn.execute("SELECT id, name, description FROM boards WHERE id = ?", (board_id,)).fetchone()
     else:
         row = conn.execute("SELECT id, name, description FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id)).fetchone()
         if not row:
             return {}
-
-    row = conn.execute("SELECT id, name, description FROM boards WHERE id = ?", (board_id,)).fetchone()
     board_name = row["name"]
     board_description = row["description"]
 
@@ -537,19 +537,11 @@ def get_card_labels(conn: sqlite3.Connection, card_id: int) -> list[dict]:
     return [{"id": str(r["id"]), "name": r["name"], "color": r["color"]} for r in rows]
 
 
-def assign_label(conn: sqlite3.Connection, card_id: int, label_id: int) -> bool:
-    """Assign a label to a card. Returns False if already assigned."""
-    existing = conn.execute(
-        "SELECT 1 FROM card_labels WHERE card_id = ? AND label_id = ?",
-        (card_id, label_id),
-    ).fetchone()
-    if existing:
-        return False
+def assign_label(conn: sqlite3.Connection, card_id: int, label_id: int) -> None:
     conn.execute(
-        "INSERT INTO card_labels (card_id, label_id) VALUES (?, ?)",
+        "INSERT OR IGNORE INTO card_labels (card_id, label_id) VALUES (?, ?)",
         (card_id, label_id),
     )
-    return True
 
 
 def unassign_label(conn: sqlite3.Connection, card_id: int, label_id: int) -> bool:

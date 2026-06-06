@@ -1,3 +1,4 @@
+import json
 import os
 
 import anthropic
@@ -103,7 +104,7 @@ def chat_with_claude(messages: list[dict], board: dict) -> AIResponse:
     Chat with Claude, passing the current board state in the system prompt.
     Returns a structured AIResponse (message + optional kanban_update).
     """
-    system = f"{_SYSTEM}\n\nCurrent board (JSON):\n{board}"
+    system = f"{_SYSTEM}\n\nCurrent board (JSON):\n{json.dumps(board)}"
 
     response = get_client().messages.create(
         model=MODEL,
