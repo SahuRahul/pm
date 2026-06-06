@@ -115,13 +115,13 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     if "role" not in existing_user_cols:
         conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
     if "created_at" not in existing_user_cols:
-        conn.execute("ALTER TABLE users ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))")
+        conn.execute("ALTER TABLE users ADD COLUMN created_at TEXT NOT NULL DEFAULT '1970-01-01 00:00:00'")
 
     existing_board_cols = {row[1] for row in conn.execute("PRAGMA table_info(boards)")}
     if "description" not in existing_board_cols:
         conn.execute("ALTER TABLE boards ADD COLUMN description TEXT NOT NULL DEFAULT ''")
     if "created_at" not in existing_board_cols:
-        conn.execute("ALTER TABLE boards ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))")
+        conn.execute("ALTER TABLE boards ADD COLUMN created_at TEXT NOT NULL DEFAULT '1970-01-01 00:00:00'")
 
     existing_col_cols = {row[1] for row in conn.execute("PRAGMA table_info(columns)")}
     if "color" not in existing_col_cols:
@@ -133,7 +133,7 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     if "due_date" not in existing_card_cols:
         conn.execute("ALTER TABLE cards ADD COLUMN due_date TEXT")
     if "created_at" not in existing_card_cols:
-        conn.execute("ALTER TABLE cards ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))")
+        conn.execute("ALTER TABLE cards ADD COLUMN created_at TEXT NOT NULL DEFAULT '1970-01-01 00:00:00'")
 
 
 def _seed_default_user(conn: sqlite3.Connection) -> None:
