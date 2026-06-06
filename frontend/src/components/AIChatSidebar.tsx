@@ -7,10 +7,11 @@ import type { BoardData } from "@/lib/kanban";
 
 type Props = {
   board: BoardData;
+  boardId?: string;
   onBoardUpdate: (board: BoardData) => void;
 };
 
-export const AIChatSidebar = ({ board, onBoardUpdate }: Props) => {
+export const AIChatSidebar = ({ board, boardId, onBoardUpdate }: Props) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -33,7 +34,7 @@ export const AIChatSidebar = ({ board, onBoardUpdate }: Props) => {
     setError(null);
 
     try {
-      const res = await postChat(next, board);
+      const res = await postChat(next, board, boardId);
       setMessages((prev) => [...prev, { role: "assistant", content: res.message }]);
       onBoardUpdate(res.board);
     } catch {
@@ -52,7 +53,6 @@ export const AIChatSidebar = ({ board, onBoardUpdate }: Props) => {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
       <div className="border-b border-[var(--stroke)] px-5 py-4">
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)]">
           AI Assistant
@@ -62,7 +62,6 @@ export const AIChatSidebar = ({ board, onBoardUpdate }: Props) => {
         </p>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {messages.length === 0 && (
           <p className="text-xs text-[var(--gray-text)] text-center mt-4">
@@ -70,10 +69,7 @@ export const AIChatSidebar = ({ board, onBoardUpdate }: Props) => {
           </p>
         )}
         {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          >
+          <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                 msg.role === "user"
@@ -106,7 +102,6 @@ export const AIChatSidebar = ({ board, onBoardUpdate }: Props) => {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div className="border-t border-[var(--stroke)] p-4">
         <div className="flex gap-2 items-end">
           <textarea

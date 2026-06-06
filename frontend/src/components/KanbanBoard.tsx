@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -14,15 +14,30 @@ import {
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { AIChatSidebar } from "@/components/AIChatSidebar";
-import { apiUrl } from "@/lib/api";
-import { createId, moveCard, type BoardData } from "@/lib/kanban";
+import { BoardSelector } from "@/components/BoardSelector";
+import {
+  createCard,
+  deleteCard,
+  deleteColumn,
+  listBoards,
+  getBoard,
+  moveCardApi,
+  updateColumn,
+  createColumn,
+} from "@/lib/api";
+import {
+  createId,
+  moveCard,
+  type BoardData,
+  type BoardSummary,
+  type Priority,
+} from "@/lib/kanban";
 
-// Strip col-/card- prefix to get the numeric DB id for API calls
 const stripId = (prefixedId: string): number =>
   Number(prefixedId.replace(/^(col-|card-)/, ""));
 
-// Strip col-/card- prefixes for sending back to the API
 const denormalizeBoard = (data: BoardData): BoardData => ({
+  ...data,
   columns: data.columns.map((col) => ({
     ...col,
     id: col.id.replace(/^col-/, ""),
@@ -36,8 +51,8 @@ const denormalizeBoard = (data: BoardData): BoardData => ({
   ),
 });
 
-// Add col-/card- prefixes to prevent id collision between columns and cards
 const normalizeBoard = (data: BoardData): BoardData => ({
+  ...data,
   columns: data.columns.map((col) => ({
     ...col,
     id: `col-${col.id}`,
@@ -62,6 +77,8 @@ export const KanbanBoard = ({
   initialBoard,
   useApi = true,
 }: KanbanBoardProps) => {
+  const [boards, setBoards] = useState<BoardSummary[]>([]);
+  const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [board, setBoard] = useState<BoardData | null>(initialBoard ?? null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(useApi && !initialBoard);
@@ -69,56 +86,58 @@ export const KanbanBoard = ({
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
+
+  const loadBoard = useCallback(async (boardId: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await getBoard(boardId);
+      setBoard(normalizeBoard(data));
+      setActiveBoardId(boardId);
+    } catch {
+      setError("Unable to load board.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!useApi || initialBoard) {
-      return;
-    }
-
-    let isActive = true;
-
-    const loadBoard = async () => {
+    if (!useApi || initialBoard) return;
+    let active = true;
+    const init = async () => {
       setIsLoading(true);
-      setError(null);
       try {
-        const response = await fetch(apiUrl("/api/board"), {
-          credentials: "include",
-        });
-        if (!response.ok) {
-          throw new Error("Unable to load board.");
-        }
-        const data = (await response.json()) as BoardData;
-        if (isActive) {
+        const boardList = await listBoards();
+        if (!active) return;
+        setBoards(boardList);
+        if (boardList.length > 0) {
+          const data = await getBoard(boardList[0].id);
+          if (!active) return;
           setBoard(normalizeBoard(data));
+          setActiveBoardId(boardList[0].id);
         }
       } catch {
-        if (isActive) {
-          setError("Unable to load board.");
-        }
+        if (active) setError("Unable to load boards.");
       } finally {
-        if (isActive) {
-          setIsLoading(false);
-        }
+        if (active) setIsLoading(false);
       }
     };
+    init();
+    return () => { active = false; };
+  }, [useApi, initialBoard, loadBoard]);
 
-    loadBoard();
+  const handleBoardSelect = async (boardId: string) => {
+    await loadBoard(boardId);
+  };
 
-    return () => {
-      isActive = false;
-    };
-  }, [useApi, initialBoard]);
+  const handleBoardsChange = (updated: BoardSummary[]) => {
+    setBoards(updated);
+  };
 
   const cardsById = useMemo(() => board?.cards ?? {}, [board?.cards]);
-
-  const denormalizedBoard = useMemo(
-    () => (board ? denormalizeBoard(board) : null),
-    [board]
-  );
+  const denormalizedBoard = useMemo(() => (board ? denormalizeBoard(board) : null), [board]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
@@ -127,27 +146,17 @@ export const KanbanBoard = ({
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveCardId(null);
-
-    if (!over || active.id === over.id || !board) {
-      return;
-    }
+    if (!over || active.id === over.id || !board) return;
 
     const activeId = active.id as string;
     const prevColumns = board.columns;
     const nextColumns = moveCard(board.columns, activeId, over.id as string);
-
     setBoard((prev) => (prev ? { ...prev, columns: nextColumns } : prev));
 
-    if (!useApi) {
-      return;
-    }
+    if (!useApi) return;
 
-    const targetColumn = nextColumns.find((column) =>
-      column.cardIds.includes(activeId)
-    );
-    if (!targetColumn) {
-      return;
-    }
+    const targetColumn = nextColumns.find((c) => c.cardIds.includes(activeId));
+    if (!targetColumn) return;
 
     const position = targetColumn.cardIds.indexOf(activeId);
     const columnId = stripId(targetColumn.id);
@@ -158,18 +167,8 @@ export const KanbanBoard = ({
     }
 
     try {
-      const response = await fetch(apiUrl(`/api/cards/${stripId(activeId)}/move`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ columnId, position }),
-      });
-      if (!response.ok) {
-        setBoard((prev) => (prev ? { ...prev, columns: prevColumns } : prev));
-        setError("Unable to move card.");
-      } else {
-        setError(null);
-      }
+      await moveCardApi(String(stripId(activeId)), columnId, position);
+      setError(null);
     } catch {
       setBoard((prev) => (prev ? { ...prev, columns: prevColumns } : prev));
       setError("Unable to move card.");
@@ -177,63 +176,81 @@ export const KanbanBoard = ({
   };
 
   const handleRenameColumn = async (columnId: string, title: string) => {
-    if (!board) {
-      return;
-    }
-    const prevColumns = board.columns;
+    if (!board) return;
     setBoard((prev) =>
-      prev
-        ? {
-            ...prev,
-            columns: prev.columns.map((column) =>
-              column.id === columnId ? { ...column, title } : column
-            ),
-          }
-        : prev
+      prev ? { ...prev, columns: prev.columns.map((c) => c.id === columnId ? { ...c, title } : c) } : prev
     );
-
-    if (!useApi) {
-      return;
-    }
-
+    if (!useApi) return;
     try {
-      const response = await fetch(apiUrl(`/api/columns/${stripId(columnId)}`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ title }),
-      });
-      if (!response.ok) {
-        setBoard((prev) => (prev ? { ...prev, columns: prevColumns } : prev));
-        setError("Unable to rename column.");
-      } else {
-        setError(null);
-      }
+      await updateColumn(String(stripId(columnId)), { title });
+      setError(null);
     } catch {
-      setBoard((prev) => (prev ? { ...prev, columns: prevColumns } : prev));
       setError("Unable to rename column.");
     }
   };
 
-  const handleAddCard = async (columnId: string, title: string, details: string) => {
-    if (!board) {
+  const handleAddColumn = async () => {
+    if (!board || !activeBoardId) return;
+    const title = "New Column";
+    if (!useApi) {
+      const id = createId("col");
+      setBoard((prev) =>
+        prev ? { ...prev, columns: [...prev.columns, { id, title, color: "#ecad0a", cardIds: [] }] } : prev
+      );
       return;
     }
-
-    if (!useApi) {
-      const id = createId("card");
+    try {
+      const col = await createColumn(parseInt(activeBoardId), title);
       setBoard((prev) =>
         prev
           ? {
               ...prev,
-              cards: {
-                ...prev.cards,
-                [id]: { id, title, details: details || "No details yet." },
-              },
-              columns: prev.columns.map((column) =>
-                column.id === columnId
-                  ? { ...column, cardIds: [...column.cardIds, id] }
-                  : column
+              columns: [...prev.columns, { id: `col-${col.id}`, title: col.title, color: col.color, cardIds: [] }],
+            }
+          : prev
+      );
+      setError(null);
+    } catch {
+      setError("Unable to add column.");
+    }
+  };
+
+  const handleDeleteColumn = async (columnId: string) => {
+    if (!board) return;
+    if (!confirm(`Delete this column and all its cards?`)) return;
+    const prevBoard = board;
+    setBoard((prev) =>
+      prev ? { ...prev, columns: prev.columns.filter((c) => c.id !== columnId) } : prev
+    );
+    if (!useApi) return;
+    try {
+      await deleteColumn(String(stripId(columnId)));
+      setError(null);
+    } catch (err) {
+      setBoard(prevBoard);
+      setError((err as Error).message || "Unable to delete column.");
+    }
+  };
+
+  const handleAddCard = async (
+    columnId: string,
+    title: string,
+    details: string,
+    priority: Priority,
+    dueDate: string | null
+  ) => {
+    if (!board) return;
+
+    if (!useApi) {
+      const id = createId("card");
+      const card = { id, title, details: details || "", priority, dueDate };
+      setBoard((prev) =>
+        prev
+          ? {
+              ...prev,
+              cards: { ...prev.cards, [id]: card },
+              columns: prev.columns.map((c) =>
+                c.id === columnId ? { ...c, cardIds: [...c.cardIds, id] } : c
               ),
             }
           : prev
@@ -242,21 +259,7 @@ export const KanbanBoard = ({
     }
 
     try {
-      const response = await fetch(apiUrl("/api/cards"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ columnId: stripId(columnId), title, details }),
-      });
-      if (!response.ok) {
-        setError("Unable to add card.");
-        return;
-      }
-      const card = (await response.json()) as {
-        id: string;
-        title: string;
-        details: string;
-      };
+      const card = await createCard(stripId(columnId), title, details, priority, dueDate ?? undefined);
       const prefixedCardId = `card-${card.id}`;
       setBoard((prev) =>
         prev
@@ -268,12 +271,12 @@ export const KanbanBoard = ({
                   id: prefixedCardId,
                   title: card.title,
                   details: card.details,
+                  priority: card.priority,
+                  dueDate: card.dueDate,
                 },
               },
-              columns: prev.columns.map((column) =>
-                column.id === columnId
-                  ? { ...column, cardIds: [...column.cardIds, prefixedCardId] }
-                  : column
+              columns: prev.columns.map((c) =>
+                c.id === columnId ? { ...c, cardIds: [...c.cardIds, prefixedCardId] } : c
               ),
             }
           : prev
@@ -285,61 +288,25 @@ export const KanbanBoard = ({
   };
 
   const handleDeleteCard = async (columnId: string, cardId: string) => {
-    if (!board) {
-      return;
-    }
-
-    if (!useApi) {
-      setBoard((prev) =>
-        prev
-          ? {
-              ...prev,
-              cards: Object.fromEntries(
-                Object.entries(prev.cards).filter(([id]) => id !== cardId)
-              ),
-              columns: prev.columns.map((column) =>
-                column.id === columnId
-                  ? {
-                      ...column,
-                      cardIds: column.cardIds.filter((id) => id !== cardId),
-                    }
-                  : column
-              ),
-            }
-          : prev
-      );
-      return;
-    }
-
+    if (!board) return;
+    const prevBoard = board;
+    setBoard((prev) =>
+      prev
+        ? {
+            ...prev,
+            cards: Object.fromEntries(Object.entries(prev.cards).filter(([id]) => id !== cardId)),
+            columns: prev.columns.map((c) =>
+              c.id === columnId ? { ...c, cardIds: c.cardIds.filter((id) => id !== cardId) } : c
+            ),
+          }
+        : prev
+    );
+    if (!useApi) return;
     try {
-      const response = await fetch(apiUrl(`/api/cards/${stripId(cardId)}`), {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (!response.ok) {
-        setError("Unable to delete card.");
-        return;
-      }
-      setBoard((prev) =>
-        prev
-          ? {
-              ...prev,
-              cards: Object.fromEntries(
-                Object.entries(prev.cards).filter(([id]) => id !== cardId)
-              ),
-              columns: prev.columns.map((column) =>
-                column.id === columnId
-                  ? {
-                      ...column,
-                      cardIds: column.cardIds.filter((id) => id !== cardId),
-                    }
-                  : column
-              ),
-            }
-          : prev
-      );
+      await deleteCard(String(stripId(cardId)));
       setError(null);
     } catch {
+      setBoard(prevBoard);
       setError("Unable to delete card.");
     }
   };
@@ -349,8 +316,7 @@ export const KanbanBoard = ({
   if (isLoading) {
     return (
       <div className="relative overflow-hidden">
-        <div className="pointer-events-none absolute left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)]" />
-        <div className="pointer-events-none absolute bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)]" />
+        <BgGradients />
         <main className="relative mx-auto flex min-h-screen max-w-[720px] items-center justify-center px-6 py-16 text-sm font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
           Loading board
         </main>
@@ -361,8 +327,7 @@ export const KanbanBoard = ({
   if (!board) {
     return (
       <div className="relative overflow-hidden">
-        <div className="pointer-events-none absolute left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)]" />
-        <div className="pointer-events-none absolute bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)]" />
+        <BgGradients />
         <main className="relative mx-auto flex min-h-screen max-w-[720px] items-center justify-center px-6 py-16 text-sm font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
           Board unavailable
         </main>
@@ -372,34 +337,41 @@ export const KanbanBoard = ({
 
   return (
     <div className="relative overflow-hidden">
-      <div className="pointer-events-none absolute left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)]" />
-      <div className="pointer-events-none absolute bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)]" />
+      <BgGradients />
 
-      <main className="relative mx-auto flex min-h-screen max-w-[1500px] flex-col gap-10 px-6 pb-16 pt-12">
+      <main className="relative mx-auto flex min-h-screen max-w-[1600px] flex-col gap-10 px-6 pb-16 pt-12">
         <header className="flex flex-col gap-6 rounded-[32px] border border-[var(--stroke)] bg-white/80 p-8 shadow-[var(--shadow)] backdrop-blur">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[var(--gray-text)]">
-                Single Board Kanban
+                Project Management
               </p>
               <h1 className="mt-3 font-display text-4xl font-semibold text-[var(--navy-dark)]">
-                Kanban Studio
+                {board.name}
               </h1>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--gray-text)]">
-                Keep momentum visible. Rename columns, drag cards between stages,
-                and capture quick notes without getting buried in settings.
-              </p>
+              {board.description && (
+                <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--gray-text)]">
+                  {board.description}
+                </p>
+              )}
             </div>
             <div className="flex flex-col items-end gap-4">
-              <div className="rounded-2xl border border-[var(--stroke)] bg-[var(--surface)] px-5 py-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)]">
-                  Focus
-                </p>
-                <p className="mt-2 text-lg font-semibold text-[var(--primary-blue)]">
-                  One board. Five columns. Zero clutter.
-                </p>
-              </div>
+              {useApi && boards.length > 0 && activeBoardId && (
+                <BoardSelector
+                  boards={boards}
+                  activeBoardId={activeBoardId}
+                  onSelect={handleBoardSelect}
+                  onBoardsChange={handleBoardsChange}
+                />
+              )}
               <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleAddColumn}
+                  className="rounded-full border border-[var(--stroke)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)] transition hover:border-[var(--accent-yellow)] hover:text-[var(--accent-yellow)]"
+                >
+                  + Column
+                </button>
                 <button
                   type="button"
                   onClick={() => setSidebarOpen((o) => !o)}
@@ -407,7 +379,7 @@ export const KanbanBoard = ({
                 >
                   {sidebarOpen ? "Close AI" : "AI Assistant"}
                 </button>
-                {onLogout ? (
+                {onLogout && (
                   <button
                     type="button"
                     onClick={onLogout}
@@ -415,38 +387,45 @@ export const KanbanBoard = ({
                   >
                     Log out
                   </button>
-                ) : null}
+                )}
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-4">
+
+          <div className="flex flex-wrap items-center gap-3">
             {board.columns.map((column) => (
               <div
                 key={column.id}
                 className="flex items-center gap-2 rounded-full border border-[var(--stroke)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)]"
               >
-                <span className="h-2 w-2 rounded-full bg-[var(--accent-yellow)]" />
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: column.color || "var(--accent-yellow)" }}
+                />
                 {column.title}
               </div>
             ))}
           </div>
         </header>
 
-        {error ? (
+        {error && (
           <div className="rounded-2xl border border-[rgba(236,173,10,0.45)] bg-[rgba(236,173,10,0.12)] px-6 py-4 text-sm text-[var(--navy-dark)]">
             {error}
           </div>
-        ) : null}
+        )}
 
         <div className={`flex gap-6 ${sidebarOpen ? "items-start" : ""}`}>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 overflow-x-auto">
             <DndContext
               sensors={sensors}
               collisionDetection={closestCorners}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
-              <section className="grid gap-6 lg:grid-cols-5">
+              <section
+                className="grid gap-6"
+                style={{ gridTemplateColumns: `repeat(${board.columns.length}, minmax(240px, 1fr))` }}
+              >
                 {board.columns.map((column) => (
                   <KanbanColumn
                     key={column.id}
@@ -455,6 +434,7 @@ export const KanbanBoard = ({
                     onRename={handleRenameColumn}
                     onAddCard={handleAddCard}
                     onDeleteCard={handleDeleteCard}
+                    onDeleteColumn={board.columns.length > 1 ? handleDeleteColumn : undefined}
                   />
                 ))}
               </section>
@@ -470,15 +450,31 @@ export const KanbanBoard = ({
 
           <div
             className="w-[340px] shrink-0 rounded-[24px] border border-[var(--stroke)] bg-white/90 shadow-[var(--shadow)] backdrop-blur"
-            style={{ height: "calc(100vh - 200px)", position: "sticky", top: "24px", display: sidebarOpen ? "flex" : "none", flexDirection: "column" }}
+            style={{
+              height: "calc(100vh - 200px)",
+              position: "sticky",
+              top: "24px",
+              display: sidebarOpen ? "flex" : "none",
+              flexDirection: "column",
+            }}
           >
-            <AIChatSidebar
-              board={denormalizedBoard!}
-              onBoardUpdate={(updated) => setBoard(normalizeBoard(updated))}
-            />
+            {denormalizedBoard && (
+              <AIChatSidebar
+                board={denormalizedBoard}
+                boardId={activeBoardId ?? undefined}
+                onBoardUpdate={(updated) => setBoard(normalizeBoard(updated))}
+              />
+            )}
           </div>
         </div>
       </main>
     </div>
   );
 };
+
+const BgGradients = () => (
+  <>
+    <div className="pointer-events-none absolute left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)]" />
+    <div className="pointer-events-none absolute bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)]" />
+  </>
+);

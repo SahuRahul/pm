@@ -8,9 +8,6 @@ _signer = TimestampSigner(_SECRET)
 _COOKIE_NAME = "session"
 _MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 
-VALID_USERNAME = "user"
-VALID_PASSWORD = "password"
-
 
 def create_session(response: Response, username: str) -> None:
     token = _signer.sign(username).decode()

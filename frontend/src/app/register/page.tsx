@@ -1,31 +1,28 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { postLogin, getMe } from "@/lib/api";
+import { postRegister, postLogin } from "@/lib/api";
 
-const initialForm = { username: "", password: "" };
+const initialForm = { username: "", password: "", email: "" };
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter();
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    getMe().then(() => router.replace("/")).catch(() => {});
-  }, [router]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setIsSubmitting(true);
     try {
+      await postRegister(form.username.trim(), form.password, form.email.trim() || undefined);
       await postLogin(form.username.trim(), form.password);
       router.push("/");
-    } catch {
-      setError("Invalid username or password.");
+    } catch (err) {
+      setError((err as Error).message || "Registration failed. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -39,13 +36,13 @@ export default function LoginPage() {
       <main className="relative mx-auto flex min-h-screen max-w-[480px] flex-col justify-center gap-8 px-6 py-16">
         <header className="space-y-3 text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[var(--gray-text)]">
-            Welcome back
+            Get started
           </p>
           <h1 className="font-display text-4xl font-semibold text-[var(--navy-dark)]">
-            Kanban Studio
+            Create account
           </h1>
           <p className="text-sm leading-6 text-[var(--gray-text)]">
-            Sign in to keep your boards in sync.
+            Start managing your work with Kanban Studio.
           </p>
         </header>
 
@@ -58,9 +55,22 @@ export default function LoginPage() {
                 value={form.username}
                 onChange={(e) => setForm((p) => ({ ...p, username: e.target.value }))}
                 className="mt-2 w-full rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm font-medium text-[var(--navy-dark)] outline-none transition focus:border-[var(--primary-blue)]"
-                placeholder="user"
+                placeholder="min 3 characters"
                 autoComplete="username"
                 required
+                minLength={3}
+              />
+            </label>
+
+            <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
+              Email <span className="normal-case font-normal">(optional)</span>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                className="mt-2 w-full rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm font-medium text-[var(--navy-dark)] outline-none transition focus:border-[var(--primary-blue)]"
+                placeholder="you@example.com"
+                autoComplete="email"
               />
             </label>
 
@@ -71,9 +81,10 @@ export default function LoginPage() {
                 value={form.password}
                 onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
                 className="mt-2 w-full rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm font-medium text-[var(--navy-dark)] outline-none transition focus:border-[var(--primary-blue)]"
-                placeholder="••••••••"
-                autoComplete="current-password"
+                placeholder="min 6 characters"
+                autoComplete="new-password"
                 required
+                minLength={6}
               />
             </label>
 
@@ -88,14 +99,14 @@ export default function LoginPage() {
               disabled={isSubmitting}
               className="w-full rounded-full bg-[var(--secondary-purple)] px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {isSubmitting ? "Signing in…" : "Sign in"}
+              {isSubmitting ? "Creating account…" : "Create account"}
             </button>
           </form>
 
           <p className="mt-6 text-center text-xs text-[var(--gray-text)]">
-            Don&apos;t have an account?{" "}
-            <Link href="/register" className="font-semibold text-[var(--primary-blue)] hover:underline">
-              Create one
+            Already have an account?{" "}
+            <Link href="/login" className="font-semibold text-[var(--primary-blue)] hover:underline">
+              Sign in
             </Link>
           </p>
         </section>

@@ -1,3 +1,6 @@
+"""Integration test for the full board CRUD flow (backward-compat endpoint + board-scoped endpoints)."""
+
+
 def login(client):
     response = client.post(
         "/api/auth/login",
@@ -23,9 +26,12 @@ def test_board_crud_flow(client):
     session = login(client)
     board = client.get("/api/board", cookies={"session": session}).json()
     assert len(board["columns"]) == 5
+    assert "name" in board
+    assert "id" in board
 
     first_column_id = int(board["columns"][0]["id"])
     second_column_id = int(board["columns"][1]["id"])
+    board_id = int(board["id"])
 
     # Create
     create_res = client.post(
@@ -35,6 +41,7 @@ def test_board_crud_flow(client):
     )
     assert create_res.status_code == 200
     card_id = int(create_res.json()["id"])
+    assert create_res.json()["priority"] == "medium"
 
     # Rename column
     rename_res = client.patch(
@@ -43,7 +50,7 @@ def test_board_crud_flow(client):
         cookies={"session": session},
     )
     assert rename_res.status_code == 200
-    board2 = client.get("/api/board", cookies={"session": session}).json()
+    board2 = client.get(f"/api/boards/{board_id}", cookies={"session": session}).json()
     assert board2["columns"][0]["title"] == "Renamed"
 
     # Update card title and details
@@ -71,7 +78,7 @@ def test_board_crud_flow(client):
         cookies={"session": session},
     )
     assert move_cross_res.status_code == 200
-    board3 = client.get("/api/board", cookies={"session": session}).json()
+    board3 = client.get(f"/api/boards/{board_id}", cookies={"session": session}).json()
     second_col = next(c for c in board3["columns"] if int(c["id"]) == second_column_id)
     assert str(card_id) in second_col["cardIds"]
 
@@ -81,5 +88,5 @@ def test_board_crud_flow(client):
         cookies={"session": session},
     )
     assert delete_res.status_code == 200
-    board4 = client.get("/api/board", cookies={"session": session}).json()
+    board4 = client.get(f"/api/boards/{board_id}", cookies={"session": session}).json()
     assert str(card_id) not in board4["cards"]
